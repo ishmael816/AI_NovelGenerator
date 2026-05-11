@@ -1,0 +1,736 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>大纲审阅器 — NoverGen</title>
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+:root {
+  --bg: #0f1117;
+  --surface: #1a1d27;
+  --surface2: #242836;
+  --border: #2e3345;
+  --text: #e1e4ed;
+  --text2: #9ca3b4;
+  --accent: #6c8cff;
+  --accent2: #4a6cf7;
+  --red: #f87171;
+  --amber: #fbbf24;
+  --green: #34d399;
+  --blue: #60a5fa;
+  --radius: 8px;
+  --sidebar-w: 280px;
+  --panel-w: 340px;
+}
+html, body { height: 100%; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* ── Top Bar ── */
+#topbar {
+  display: flex; align-items: center; gap: 12px;
+  padding: 8px 16px; background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0; height: 48px;
+}
+#topbar h1 { font-size: 15px; font-weight: 600; color: var(--text); }
+#topbar .spacer { flex: 1; }
+#queue-badge {
+  background: var(--accent); color: #fff; font-size: 12px; font-weight: 600;
+  padding: 4px 10px; border-radius: 12px; cursor: pointer;
+  transition: background .15s;
+}
+#queue-badge:hover { background: var(--accent2); }
+#queue-badge.empty { background: var(--surface2); color: var(--text2); }
+
+/* ── Layout ── */
+#app { display: flex; flex: 1; overflow: hidden; }
+
+/* ── Sidebar ── */
+#sidebar {
+  width: var(--sidebar-w); flex-shrink: 0;
+  background: var(--surface); border-right: 1px solid var(--border);
+  display: flex; flex-direction: column; overflow: hidden;
+}
+#sidebar-header {
+  padding: 12px 14px; font-size: 12px; font-weight: 600;
+  text-transform: uppercase; color: var(--text2);
+  letter-spacing: .05em; border-bottom: 1px solid var(--border);
+}
+#outline-list {
+  flex: 1; overflow-y: auto; padding: 4px 0;
+}
+.outline-item {
+  padding: 10px 14px; cursor: pointer; border-left: 3px solid transparent;
+  transition: background .12s, border-color .12s;
+  display: flex; flex-direction: column; gap: 3px;
+}
+.outline-item:hover { background: var(--surface2); }
+.outline-item.active { background: var(--surface2); border-left-color: var(--accent); }
+.outline-item .oi-name { font-weight: 600; font-size: 13px; }
+.outline-item .oi-title {
+  font-size: 12px; color: var(--text2);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.outline-item .oi-meta {
+  display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--text2);
+}
+.oi-meta .tag {
+  background: var(--surface2); color: var(--accent);
+  padding: 1px 6px; border-radius: 3px; font-size: 10px;
+}
+.oi-meta .comp { padding: 1px 6px; border-radius: 3px; font-size: 10px; }
+.oi-meta .comp.red { background: #3b1f1f; color: var(--red); }
+.oi-meta .comp.blue { background: #1f2e3b; color: var(--blue); }
+.oi-meta .comp.amber { background: #2e2a1a; color: var(--amber); }
+.oi-meta .queue-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); flex-shrink: 0; }
+.oi-meta .ann-count { margin-left: auto; font-size: 10px; color: var(--text2); }
+
+/* ── Main Content ── */
+#main {
+  flex: 1; overflow-y: auto; padding: 24px 28px; display: flex; flex-direction: column; gap: 6px;
+}
+#main .empty-state {
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  height: 100%; color: var(--text2); gap: 8px;
+}
+#main .empty-state .icon { font-size: 48px; opacity: .3; }
+#main .empty-state .msg { font-size: 14px; }
+
+/* ── Outline Header ── */
+.outline-header { margin-bottom: 16px; }
+.outline-header .oh-name { font-size: 20px; font-weight: 700; }
+.outline-header .oh-meta {
+  margin-top: 4px; font-size: 12px; color: var(--text2);
+  display: flex; gap: 12px; flex-wrap: wrap;
+}
+
+/* ── Sections ── */
+.section-block {
+  border: 1px solid var(--border); border-radius: var(--radius);
+  padding: 14px 16px; cursor: pointer; transition: border-color .12s, background .12s;
+}
+.section-block:hover { border-color: var(--accent); }
+.section-block.selected { border-color: var(--accent); background: rgba(108,140,255,.06); }
+.section-block .sec-head {
+  font-size: 13px; font-weight: 700; color: var(--accent);
+  margin-bottom: 6px; display: flex; align-items: center; gap: 8px;
+}
+.section-block .sec-head .sec-actions { margin-left: auto; display: flex; gap: 4px; }
+.sec-actions button {
+  background: var(--surface2); border: 1px solid var(--border); color: var(--text2);
+  padding: 2px 8px; border-radius: 4px; font-size: 11px; cursor: pointer;
+  transition: background .12s, color .12s;
+}
+.sec-actions button:hover { background: var(--accent); color: #fff; border-color: var(--accent); }
+.section-block .sec-content {
+  font-size: 13px; line-height: 1.7; color: var(--text);
+  white-space: pre-wrap; word-break: break-word;
+  max-height: 200px; overflow-y: auto;
+}
+.section-block .sec-content.expanded { max-height: none; }
+.section-block .sec-expand {
+  font-size: 11px; color: var(--accent); cursor: pointer; margin-top: 4px;
+}
+.section-block textarea.sec-editor {
+  width: 100%; min-height: 120px; background: var(--bg);
+  color: var(--text); border: 1px solid var(--border); border-radius: 4px;
+  padding: 8px 10px; font-size: 13px; line-height: 1.7; font-family: inherit;
+  resize: vertical;
+}
+.section-block .edit-actions { display: flex; gap: 6px; margin-top: 6px; }
+.edit-actions button {
+  padding: 4px 12px; border-radius: 4px; font-size: 12px; cursor: pointer;
+  border: 1px solid var(--border);
+}
+.edit-actions .btn-save { background: var(--accent); color: #fff; border-color: var(--accent); }
+.edit-actions .btn-cancel { background: var(--surface2); color: var(--text2); }
+.edit-actions .btn-revert { background: transparent; color: var(--red); border-color: transparent; margin-left: auto; }
+
+/* ── Right Panel ── */
+#panel {
+  width: var(--panel-w); flex-shrink: 0;
+  background: var(--surface); border-left: 1px solid var(--border);
+  display: flex; flex-direction: column; overflow: hidden;
+}
+#panel-header {
+  padding: 12px 14px; font-size: 12px; font-weight: 600;
+  text-transform: uppercase; color: var(--text2);
+  letter-spacing: .05em; border-bottom: 1px solid var(--border);
+  display: flex; align-items: center; gap: 8px;
+}
+#panel-header .section-label { color: var(--accent); font-weight: 400; text-transform: none; }
+#panel-empty {
+  flex: 1; display: flex; align-items: center; justify-content: center;
+  color: var(--text2); font-size: 13px; text-align: center; padding: 20px;
+}
+#annotations-list { flex: 1; overflow-y: auto; padding: 8px 0; }
+.annotation-card {
+  margin: 4px 10px; padding: 10px 12px; background: var(--surface2);
+  border-radius: var(--radius); border: 1px solid var(--border);
+  font-size: 13px; line-height: 1.5;
+}
+.annotation-card .ann-meta {
+  display: flex; align-items: center; gap: 6px;
+  font-size: 11px; color: var(--text2); margin-bottom: 4px;
+}
+.annotation-card .ann-delete {
+  margin-left: auto; cursor: pointer; color: var(--red);
+  font-size: 11px; background: none; border: none;
+  padding: 2px 4px;
+}
+.annotation-card .ann-delete:hover { text-decoration: underline; }
+#add-annotation {
+  padding: 12px 14px; border-top: 1px solid var(--border);
+  display: flex; flex-direction: column; gap: 6px;
+}
+#add-annotation textarea {
+  width: 100%; min-height: 60px; background: var(--bg);
+  color: var(--text); border: 1px solid var(--border); border-radius: 4px;
+  padding: 8px; font-size: 13px; font-family: inherit; resize: vertical;
+}
+#add-annotation button {
+  padding: 6px 12px; border-radius: 4px; font-size: 12px; cursor: pointer;
+  background: var(--accent); color: #fff; border: none;
+}
+#add-annotation button:disabled { opacity: .4; cursor: not-allowed; }
+#add-annotation button:hover:not(:disabled) { background: var(--accent2); }
+
+/* ── Queue Tooltip ── */
+#queue-panel {
+  display: none; position: fixed; top: 48px; right: 16px;
+  width: 300px; max-height: 400px; background: var(--surface2);
+  border: 1px solid var(--border); border-radius: var(--radius);
+  z-index: 100; flex-direction: column; overflow: hidden;
+  box-shadow: 0 8px 24px rgba(0,0,0,.4);
+}
+#queue-panel.open { display: flex; }
+#queue-panel .qp-header {
+  padding: 10px 14px; font-weight: 600; font-size: 13px;
+  border-bottom: 1px solid var(--border);
+}
+#queue-panel .qp-list { flex: 1; overflow-y: auto; padding: 4px 0; }
+#queue-panel .qp-item {
+  padding: 8px 14px; font-size: 12px; display: flex; align-items: center; gap: 8px;
+  border-bottom: 1px solid var(--border);
+}
+.qp-item .qp-name { font-weight: 600; }
+.qp-item .qp-remove { margin-left: auto; color: var(--red); cursor: pointer; background: none; border: none; font-size: 12px; }
+.qp-empty { padding: 20px; text-align: center; color: var(--text2); font-size: 13px; }
+
+/* ── Toast ── */
+#toast {
+  position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%);
+  background: var(--surface2); color: var(--text); border: 1px solid var(--border);
+  padding: 8px 18px; border-radius: 20px; font-size: 13px;
+  opacity: 0; transition: opacity .2s; pointer-events: none; z-index: 200;
+}
+#toast.show { opacity: 1; }
+
+/* ── Scrollbar ── */
+::-webkit-scrollbar { width: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: var(--text2); }
+</style>
+</head>
+<body>
+
+<!-- Top Bar -->
+<div id="topbar">
+  <h1>NoverGen 大纲审阅器</h1>
+  <span class="spacer"></span>
+  <a href="/generate.html" style="color: var(--text2); text-decoration: none; font-size: 13px; padding: 4px 10px; border-radius: 4px; transition: color .15s, background .15s;" onmouseenter="this.style.color='var(--text)';this.style.background='var(--surface2)'" onmouseleave="this.style.color='var(--text2)';this.style.background='transparent'">生成器</a>
+  <span id="queue-badge" class="empty" onclick="toggleQueuePanel()" title="查看待写清单">待写: 0</span>
+</div>
+
+<!-- Queue Panel -->
+<div id="queue-panel">
+  <div class="qp-header">待写清单</div>
+  <div class="qp-list" id="qp-list"></div>
+</div>
+
+<!-- App -->
+<div id="app">
+  <!-- Sidebar -->
+  <div id="sidebar">
+    <div id="sidebar-header">大纲列表 (10)</div>
+    <div id="outline-list"></div>
+  </div>
+
+  <!-- Main Content -->
+  <div id="main">
+    <div class="empty-state">
+      <div class="icon">📋</div>
+      <div class="msg">从左侧选择一份大纲开始审阅</div>
+    </div>
+  </div>
+
+  <!-- Annotations Panel -->
+  <div id="panel">
+    <div id="panel-header">
+      批注 <span class="section-label" id="panel-section-label"></span>
+    </div>
+    <div id="panel-empty">选择一个 section 查看批注</div>
+    <div id="annotations-list" style="display:none;"></div>
+    <div id="add-annotation" style="display:none;">
+      <textarea id="ann-input" placeholder="输入批注内容..."></textarea>
+      <button id="ann-submit" disabled onclick="addAnnotation()">添加批注</button>
+    </div>
+  </div>
+</div>
+
+<!-- Toast -->
+<div id="toast"></div>
+
+<script>
+// ── State ──
+let state = {
+  outlines: [],
+  currentOutlineId: null,
+  currentDetail: null,
+  currentSection: null,
+  annotations: [],
+  queue: [],
+  editingSection: null,
+};
+
+// ── API helpers ──
+const API = {
+  async get(url) { const r = await fetch(url); return r.json(); },
+  async post(url, body) {
+    const r = await fetch(url, {
+      method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(body)
+    });
+    if (!r.ok) { const e = await r.json(); throw new Error(e.error || r.statusText); }
+    return r.json();
+  },
+  async put(url, body) {
+    const r = await fetch(url, {
+      method: 'PUT', headers: {'Content-Type':'application/json'}, body: JSON.stringify(body)
+    });
+    if (!r.ok) { const e = await r.json(); throw new Error(e.error || r.statusText); }
+    return r.json();
+  },
+  async del(url) {
+    const r = await fetch(url, { method: 'DELETE' });
+    return r.json();
+  }
+};
+
+// ── Toast ──
+function toast(msg) {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.classList.add('show');
+  clearTimeout(el._timeout);
+  el._timeout = setTimeout(() => el.classList.remove('show'), 2000);
+}
+
+// ── Main rendering ──
+async function loadOutlines() {
+  try {
+    state.outlines = await API.get('/api/outlines');
+    state.queue = await API.get('/api/queue');
+    renderSidebar();
+    updateQueueBadge();
+  } catch (e) {
+    console.error('Failed to load outlines:', e);
+    document.getElementById('outline-list').innerHTML =
+      '<div style="padding:20px;color:var(--red);font-size:13px;">加载失败: ' + e.message + '</div>';
+  }
+}
+
+function renderSidebar() {
+  const list = document.getElementById('outline-list');
+  if (state.outlines.length === 0) {
+    list.innerHTML = '<div style="padding:20px;color:var(--text2);font-size:13px;">暂无大纲数据</div>';
+    return;
+  }
+  list.innerHTML = state.outlines.map(o => {
+    const active = o.id === state.currentOutlineId ? ' active' : '';
+    const compClass = o.competition.includes('红海') ? 'red' : o.competition.includes('蓝海') ? 'blue' : 'amber';
+    const queueDot = o.in_queue ? '<span class="queue-dot" title="已在待写清单"></span>' : '';
+    const annInfo = o.annotation_count > 0 ? `<span class="ann-count">${o.annotation_count} 条批注</span>` : '';
+    return `<div class="outline-item${active}" data-id="${o.id}" onclick="selectOutline('${o.id}')">
+      <div class="oi-name">[${o.id}] ${o.name}</div>
+      <div class="oi-title">${escHtml(o.title || '(未命名)')}</div>
+      <div class="oi-meta">
+        <span class="tag">${escHtml(o.tag)}</span>
+        <span class="comp ${compClass}">${escHtml(o.competition)}</span>
+        ${queueDot}
+        ${annInfo}
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function escHtml(s) {
+  const d = document.createElement('div');
+  d.textContent = s;
+  return d.innerHTML;
+}
+
+// ── Outline selection ──
+async function selectOutline(id) {
+  state.currentOutlineId = id;
+  state.currentSection = null;
+  state.editingSection = null;
+  renderSidebar();
+
+  const main = document.getElementById('main');
+  main.innerHTML = '<div class="empty-state"><div class="msg">加载中...</div></div>';
+
+  try {
+    const detail = await API.get(`/api/outlines/${id}`);
+    state.currentDetail = detail;
+    state.annotations = await API.get('/api/annotations');
+    renderOutline(detail);
+    updatePanel();
+    updateQueueBadge();
+  } catch (e) {
+    main.innerHTML = `<div class="empty-state"><div class="msg" style="color:var(--red);">加载失败: ${escHtml(e.message)}</div></div>`;
+  }
+}
+
+function renderOutline(detail) {
+  const main = document.getElementById('main');
+  const sections = detail.sections || {};
+  const compClass = detail.competition.includes('红海') ? 'red' : detail.competition.includes('蓝海') ? 'blue' : 'amber';
+
+  // Determine queue status for this outline
+  const inQueue = state.queue.some(q => q.outline_id === detail.id);
+
+  let html = `<div class="outline-header">
+    <div class="oh-name">[${detail.id}] ${escHtml(detail.name)}</div>
+    <div class="oh-meta">
+      <span>标签: <span class="tag">${escHtml(detail.tag)}</span></span>
+      <span>竞争: <span class="comp ${compClass}">${escHtml(detail.competition)}</span></span>
+      <span>市场: ${escHtml(detail.market_share)}</span>
+      <button onclick="toggleQueue('${detail.id}', event)" style="
+        background:${inQueue?'var(--red)':'var(--accent)'};color:#fff;border:none;
+        padding:2px 10px;border-radius:4px;font-size:11px;cursor:pointer;margin-left:8px;
+      ">${inQueue ? '移出待写清单' : '加入待写清单'}</button>
+      <button onclick="revertOutline('${detail.id}')" style="
+        background:transparent;color:var(--text2);border:1px solid var(--border);
+        padding:2px 10px;border-radius:4px;font-size:11px;cursor:pointer;
+      ">还原所有修改</button>
+    </div>
+  </div>`;
+
+  const sectionOrder = ['书名字','一句话卖点','核心设定','主角人设','三幕结构','前10章详细大纲','商业卖点清单','目标读者画像'];
+
+  for (const key of sectionOrder) {
+    if (!(key in sections)) continue;
+    const content = sections[key] || '';
+    const isSelected = state.currentSection === key;
+    const isEditing = state.editingSection === key;
+    html += `<div class="section-block${isSelected ? ' selected' : ''}" id="sec-${cssEscape(key)}">
+      <div class="sec-head" onclick="selectSection('${escAttr(key)}')">
+        ${escHtml(key)}
+        <span class="sec-actions">
+          <button onclick="event.stopPropagation();startEdit('${escAttr(key)}')" title="编辑">✎ 编辑</button>
+        </span>
+      </div>`;
+
+    if (isEditing) {
+      html += `<textarea class="sec-editor" id="editor-${cssEscape(key)}">${escHtml(content)}</textarea>
+        <div class="edit-actions">
+          <button class="btn-save" onclick="saveEdit('${escAttr(key)}')">保存</button>
+          <button class="btn-cancel" onclick="cancelEdit()">取消</button>
+          <button class="btn-revert" onclick="revertSection('${escAttr(key)}')">还原此 Section</button>
+        </div>`;
+    } else {
+      const long = content.length > 400;
+      html += `<div class="sec-content${long ? '' : ' expanded'}" id="content-${cssEscape(key)}" onclick="selectSection('${escAttr(key)}')">${escHtml(content)}</div>`;
+      if (long) {
+        html += `<div class="sec-expand" onclick="event.stopPropagation();toggleExpand('${escAttr(key)}')">展开全部 ↓</div>`;
+      }
+    }
+
+    html += `</div>`;
+  }
+
+  main.innerHTML = html;
+}
+
+function cssEscape(s) { return s.replace(/[^a-zA-Z0-9\u4e00-\u9fff]/g, '_'); }
+function escAttr(s) { return s.replace(/'/g, "\\'").replace(/"/g, '&quot;'); }
+
+function toggleExpand(key) {
+  const content = document.getElementById('content-' + cssEscape(key));
+  const btn = content.nextElementSibling;
+  if (content.classList.contains('expanded')) {
+    content.classList.remove('expanded');
+    btn.textContent = '展开全部 ↓';
+  } else {
+    content.classList.add('expanded');
+    btn.textContent = '收起 ↑';
+  }
+}
+
+// ── Section selection ──
+function selectSection(key) {
+  if (state.editingSection) return; // Don't switch while editing
+  state.currentSection = key;
+  // Re-render to update selection highlight
+  if (state.currentDetail) renderOutline(state.currentDetail);
+  updatePanel();
+}
+
+// ── Editing ──
+function startEdit(key) {
+  state.editingSection = key;
+  state.currentSection = key;
+  renderOutline(state.currentDetail);
+  updatePanel();
+  // Focus textarea
+  setTimeout(() => {
+    const ta = document.getElementById('editor-' + cssEscape(key));
+    if (ta) ta.focus();
+  }, 50);
+}
+
+function cancelEdit() {
+  state.editingSection = null;
+  renderOutline(state.currentDetail);
+}
+
+async function saveEdit(key) {
+  const ta = document.getElementById('editor-' + cssEscape(key));
+  if (!ta) return;
+  const newContent = ta.value;
+  try {
+    await API.put(`/api/outlines/${state.currentOutlineId}`, {
+      section_key: key,
+      new_content: newContent,
+    });
+    state.editingSection = null;
+    // Update local state
+    state.currentDetail.sections[key] = newContent;
+    renderOutline(state.currentDetail);
+    toast('已保存修改');
+  } catch (e) {
+    toast('保存失败: ' + e.message);
+  }
+}
+
+async function revertSection(key) {
+  try {
+    // Remove the edit for this specific section
+    const edits = await API.get('/api/outlines/' + state.currentOutlineId);
+    // Get fresh data from server
+    await API.post(`/api/outlines/${state.currentOutlineId}/revert`);
+    state.editingSection = null;
+    // Reload
+    const detail = await API.get(`/api/outlines/${state.currentOutlineId}`);
+    state.currentDetail = detail;
+    renderOutline(detail);
+    toast('已还原所有修改');
+  } catch (e) {
+    toast('还原失败: ' + e.message);
+  }
+}
+
+async function revertOutline(id) {
+  try {
+    await API.post(`/api/outlines/${id}/revert`);
+    state.editingSection = null;
+    const detail = await API.get(`/api/outlines/${id}`);
+    state.currentDetail = detail;
+    renderOutline(detail);
+    toast('已还原到原始版本');
+  } catch (e) {
+    toast('还原失败: ' + e.message);
+  }
+}
+
+// ── Annotations ──
+function updatePanel() {
+  const label = document.getElementById('panel-section-label');
+  const empty = document.getElementById('panel-empty');
+  const list = document.getElementById('annotations-list');
+  const addArea = document.getElementById('add-annotation');
+
+  if (!state.currentSection) {
+    label.textContent = '';
+    empty.style.display = 'flex';
+    list.style.display = 'none';
+    addArea.style.display = 'none';
+    return;
+  }
+
+  label.textContent = '— ' + state.currentSection;
+  empty.style.display = 'none';
+  list.style.display = 'block';
+  addArea.style.display = 'flex';
+
+  const relevant = state.annotations.filter(
+    a => a.outline_id === state.currentOutlineId && a.section_key === state.currentSection
+  );
+
+  if (relevant.length === 0) {
+    list.innerHTML = '<div style="padding:16px;color:var(--text2);font-size:13px;text-align:center;">此 section 暂无批注</div>';
+  } else {
+    list.innerHTML = relevant.map(a => `<div class="annotation-card">
+      <div class="ann-meta">
+        <span>${a.id}</span>
+        <button class="ann-delete" onclick="deleteAnnotation('${a.id}')">删除</button>
+      </div>
+      <div>${escHtml(a.text)}</div>
+    </div>`).join('');
+  }
+
+  document.getElementById('ann-input').value = '';
+  document.getElementById('ann-submit').disabled = true;
+}
+
+document.getElementById('ann-input').addEventListener('input', function() {
+  document.getElementById('ann-submit').disabled = !this.value.trim();
+});
+
+async function addAnnotation() {
+  const input = document.getElementById('ann-input');
+  const text = input.value.trim();
+  if (!text || !state.currentSection || !state.currentOutlineId) return;
+
+  try {
+    await API.post('/api/annotations', {
+      outline_id: state.currentOutlineId,
+      section_key: state.currentSection,
+      text: text,
+    });
+    // Refresh annotations
+    state.annotations = await API.get('/api/annotations');
+    updatePanel();
+    renderSidebarFromState();
+    toast('已添加批注');
+  } catch (e) {
+    toast('添加失败: ' + e.message);
+  }
+}
+
+async function deleteAnnotation(id) {
+  try {
+    await API.del(`/api/annotations/${id}`);
+    state.annotations = await API.get('/api/annotations');
+    updatePanel();
+    renderSidebarFromState();
+    toast('已删除批注');
+  } catch (e) {
+    toast('删除失败: ' + e.message);
+  }
+}
+
+function renderSidebarFromState() {
+  // Update outline annotation counts from server
+  API.get('/api/outlines').then(outlines => {
+    state.outlines = outlines;
+    renderSidebar();
+  });
+}
+
+// ── Queue ──
+function updateQueueBadge() {
+  const badge = document.getElementById('queue-badge');
+  const count = state.queue.length;
+  badge.textContent = `待写: ${count}`;
+  if (count > 0) badge.classList.remove('empty');
+  else badge.classList.add('empty');
+}
+
+async function toggleQueue(outlineId, event) {
+  event.stopPropagation();
+  const inQueue = state.queue.some(q => q.outline_id === outlineId);
+  try {
+    if (inQueue) {
+      const item = state.queue.find(q => q.outline_id === outlineId);
+      await API.del(`/api/queue/${item.id}`);
+      toast('已移出待写清单');
+    } else {
+      await API.post('/api/queue', { outline_id: outlineId, added_at: new Date().toISOString() });
+      toast('已加入待写清单');
+    }
+    state.queue = await API.get('/api/queue');
+    if (state.currentDetail) renderOutline(state.currentDetail);
+    renderSidebarFromState();
+    updateQueueBadge();
+    renderQueuePanel();
+  } catch (e) {
+    toast('操作失败: ' + e.message);
+  }
+}
+
+function toggleQueuePanel() {
+  const panel = document.getElementById('queue-panel');
+  const open = panel.classList.contains('open');
+  if (open) {
+    panel.classList.remove('open');
+  } else {
+    renderQueuePanel();
+    panel.classList.add('open');
+  }
+}
+
+async function renderQueuePanel() {
+  const list = document.getElementById('qp-list');
+  try {
+    const queue = await API.get('/api/queue');
+    state.queue = queue;
+    updateQueueBadge();
+    if (queue.length === 0) {
+      list.innerHTML = '<div class="qp-empty">待写清单为空</div>';
+    } else {
+      list.innerHTML = queue.map(q => `<div class="qp-item">
+        <span>[${escHtml(q.outline_id)}]</span>
+        <span class="qp-name">${escHtml(q.name || '')}</span>
+        <span style="font-size:11px;color:var(--text2);">${escHtml(q.title || '')}</span>
+        <button class="qp-remove" onclick="removeFromQueue('${q.id}')">✕</button>
+      </div>`).join('');
+    }
+  } catch (e) {
+    list.innerHTML = '<div class="qp-empty" style="color:var(--red);">加载失败</div>';
+  }
+}
+
+async function removeFromQueue(queueId) {
+  try {
+    await API.del(`/api/queue/${queueId}`);
+    state.queue = await API.get('/api/queue');
+    renderQueuePanel();
+    if (state.currentDetail) renderOutline(state.currentDetail);
+    renderSidebarFromState();
+    updateQueueBadge();
+  } catch (e) {
+    toast('移除失败: ' + e.message);
+  }
+}
+
+// Close queue panel on outside click
+document.addEventListener('click', function(e) {
+  const panel = document.getElementById('queue-panel');
+  const badge = document.getElementById('queue-badge');
+  if (panel.classList.contains('open') && !panel.contains(e.target) && e.target !== badge) {
+    panel.classList.remove('open');
+  }
+});
+
+// Keyboard: press Enter in annotation input to submit
+document.getElementById('ann-input').addEventListener('keydown', function(e) {
+  if (e.key === 'Enter' && e.ctrlKey) {
+    addAnnotation();
+  }
+});
+
+// ── Init ──
+loadOutlines();
+</script>
+</body>
+</html>

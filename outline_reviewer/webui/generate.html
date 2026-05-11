@@ -1,0 +1,600 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>大纲生成器 — NoverGen</title>
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+:root {
+  --bg: #0f1117;
+  --surface: #1a1d27;
+  --surface2: #242836;
+  --border: #2e3345;
+  --text: #e1e4ed;
+  --text2: #9ca3b4;
+  --accent: #6c8cff;
+  --accent2: #4a6cf7;
+  --red: #f87171;
+  --amber: #fbbf24;
+  --green: #34d399;
+  --blue: #60a5fa;
+  --radius: 8px;
+}
+html, body { height: 100%; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* ── Top Bar ── */
+#topbar {
+  display: flex; align-items: center; gap: 12px;
+  padding: 8px 16px; background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0; height: 48px;
+}
+#topbar h1 { font-size: 15px; font-weight: 600; color: var(--text); }
+#topbar .spacer { flex: 1; }
+#topbar .nav-link {
+  color: var(--text2); text-decoration: none; font-size: 13px;
+  padding: 4px 10px; border-radius: 4px; transition: color .15s, background .15s;
+}
+#topbar .nav-link:hover { color: var(--text); background: var(--surface2); }
+#topbar .nav-link.active { color: var(--accent); }
+
+/* ── Layout ── */
+#app { display: flex; flex: 1; overflow: hidden; }
+
+/* ── Left Panel: Config ── */
+#config-panel {
+  width: 380px; flex-shrink: 0;
+  background: var(--surface); border-right: 1px solid var(--border);
+  display: flex; flex-direction: column; overflow: hidden;
+}
+#config-scroll { flex: 1; overflow-y: auto; padding: 16px; display: flex; flex-direction: column; gap: 16px; }
+
+.cfg-section {}
+.cfg-section .cfg-title {
+  font-size: 12px; font-weight: 600; text-transform: uppercase;
+  color: var(--text2); letter-spacing: .05em; margin-bottom: 8px;
+}
+
+/* Theme list */
+#theme-list { display: flex; flex-direction: column; gap: 4px; }
+.theme-item {
+  display: flex; align-items: center; gap: 8px;
+  padding: 6px 8px; border-radius: 4px; cursor: pointer;
+  transition: background .12s; font-size: 13px;
+}
+.theme-item:hover { background: var(--surface2); }
+.theme-item input[type="checkbox"] { accent-color: var(--accent); cursor: pointer; }
+.theme-item .tname { font-weight: 600; }
+.theme-item .ttag {
+  font-size: 10px; color: var(--accent); background: var(--surface2);
+  padding: 1px 5px; border-radius: 3px;
+}
+.theme-item .tcomp { font-size: 10px; padding: 1px 5px; border-radius: 3px; }
+.theme-item .tcomp.red { background: #3b1f1f; color: var(--red); }
+.theme-item .tcomp.blue { background: #1f2e3b; color: var(--blue); }
+.theme-item .tcomp.amber { background: #2e2a1a; color: var(--amber); }
+
+.theme-actions { display: flex; gap: 6px; margin-top: 4px; }
+.theme-actions button {
+  background: var(--surface2); border: 1px solid var(--border); color: var(--text2);
+  padding: 3px 10px; border-radius: 4px; font-size: 11px; cursor: pointer;
+  transition: background .12s, color .12s;
+}
+.theme-actions button:hover { background: var(--accent); color: #fff; border-color: var(--accent); }
+
+/* Custom theme */
+#custom-toggle {
+  color: var(--accent); font-size: 12px; cursor: pointer; background: none; border: none;
+  padding: 2px 0;
+}
+#custom-toggle:hover { text-decoration: underline; }
+#custom-area { display: none; flex-direction: column; gap: 8px; }
+#custom-area.open { display: flex; }
+#custom-area textarea {
+  width: 100%; min-height: 100px; background: var(--bg);
+  color: var(--text); border: 1px solid var(--border); border-radius: 4px;
+  padding: 8px; font-size: 12px; font-family: inherit; resize: vertical;
+}
+#custom-area .hint { font-size: 11px; color: var(--text2); }
+
+/* Model params */
+.param-row { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; font-size: 13px; }
+.param-row label { color: var(--text2); min-width: 80px; font-size: 12px; }
+.param-row select, .param-row input[type="number"] {
+  background: var(--bg); color: var(--text); border: 1px solid var(--border);
+  padding: 4px 8px; border-radius: 4px; font-size: 13px;
+}
+.param-row select { flex: 1; }
+.param-row input[type="number"] { width: 80px; }
+.param-row input[type="range"] { flex: 1; accent-color: var(--accent); }
+.param-row .val { font-size: 12px; color: var(--text2); min-width: 36px; text-align: right; }
+
+/* Start button */
+#btn-start {
+  padding: 10px 0; border-radius: var(--radius); font-size: 14px; font-weight: 600;
+  cursor: pointer; border: none; color: #fff; background: var(--accent);
+  transition: background .15s;
+}
+#btn-start:hover:not(:disabled) { background: var(--accent2); }
+#btn-start:disabled { opacity: .4; cursor: not-allowed; }
+
+/* ── Right Panel: Progress ── */
+#progress-panel {
+  flex: 1; display: flex; flex-direction: column; overflow: hidden;
+  padding: 20px 24px;
+}
+
+/* Progress header */
+#progress-header { margin-bottom: 16px; flex-shrink: 0; }
+#progress-header .status-text { font-size: 18px; font-weight: 700; margin-bottom: 8px; }
+#progress-header .status-text.idle { color: var(--text2); }
+#progress-header .status-text.running { color: var(--accent); }
+#progress-header .status-text.completed { color: var(--green); }
+#progress-header .status-text.failed { color: var(--red); }
+#progress-header .status-text.cancelled { color: var(--amber); }
+
+/* Progress bar */
+#progress-bar-wrap {
+  height: 8px; background: var(--surface2); border-radius: 4px;
+  overflow: hidden; margin-bottom: 8px;
+}
+#progress-bar-fill {
+  height: 100%; background: var(--accent); border-radius: 4px;
+  transition: width .3s; width: 0%;
+}
+#progress-info {
+  font-size: 13px; color: var(--text2);
+  display: flex; justify-content: space-between;
+}
+
+/* Action buttons */
+#progress-actions { flex-shrink: 0; margin-bottom: 16px; }
+#btn-cancel {
+  padding: 6px 16px; border-radius: 4px; font-size: 13px; cursor: pointer;
+  background: transparent; color: var(--red); border: 1px solid var(--red);
+  display: none;
+}
+#btn-cancel.visible { display: inline-block; }
+#btn-cancel:hover { background: var(--red); color: #fff; }
+
+/* Log stream */
+#log-title { font-size: 12px; font-weight: 600; color: var(--text2); margin-bottom: 8px; flex-shrink: 0; }
+#log-stream {
+  flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 4px;
+}
+.log-entry {
+  display: flex; align-items: center; gap: 10px;
+  padding: 6px 10px; border-radius: 4px; font-size: 13px;
+  background: var(--surface);
+}
+.log-entry .lidx { font-size: 11px; color: var(--text2); min-width: 24px; }
+.log-entry .lstatus {
+  font-size: 10px; font-weight: 600; padding: 2px 6px; border-radius: 3px;
+  text-transform: uppercase; min-width: 50px; text-align: center;
+}
+.log-entry .lstatus.pending { background: var(--surface2); color: var(--text2); }
+.log-entry .lstatus.generating { background: #1f2e3b; color: var(--blue); }
+.log-entry .lstatus.ok { background: #1a2e24; color: var(--green); }
+.log-entry .lstatus.failed { background: #3b1f1f; color: var(--red); }
+.log-entry .lstatus.skipped { background: #2e2a1a; color: var(--amber); }
+.log-entry .lname { font-weight: 600; flex: 1; }
+.log-entry .lerror { font-size: 11px; color: var(--red); }
+
+/* Empty state */
+#empty-state {
+  flex: 1; display: flex; flex-direction: column; align-items: center;
+  justify-content: center; color: var(--text2); gap: 8px;
+}
+#empty-state .icon { font-size: 48px; opacity: .3; }
+
+/* Summary */
+#summary {
+  display: none; padding: 12px 16px; background: var(--surface);
+  border-radius: var(--radius); border: 1px solid var(--border);
+  margin-bottom: 16px; flex-shrink: 0;
+}
+#summary.visible { display: block; }
+#summary .sum-title { font-weight: 600; margin-bottom: 4px; }
+#summary .sum-detail { font-size: 13px; color: var(--text2); }
+
+/* Scrollbar */
+::-webkit-scrollbar { width: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: var(--text2); }
+</style>
+</head>
+<body>
+
+<!-- Top Bar -->
+<div id="topbar">
+  <h1>NoverGen 大纲生成器</h1>
+  <span class="spacer"></span>
+  <a class="nav-link" href="/">审阅器</a>
+  <a class="nav-link active" href="/generate.html">生成器</a>
+</div>
+
+<!-- App -->
+<div id="app">
+  <!-- Left: Config -->
+  <div id="config-panel">
+    <div id="config-scroll">
+      <div class="cfg-section">
+        <div class="cfg-title">预设主题</div>
+        <div class="theme-actions">
+          <button onclick="selectAll()">全选</button>
+          <button onclick="deselectAll()">取消全选</button>
+        </div>
+        <div id="theme-list"></div>
+      </div>
+
+      <div class="cfg-section">
+        <button id="custom-toggle" onclick="toggleCustom()">+ 添加自定义主题</button>
+        <div id="custom-area">
+          <textarea id="custom-input" placeholder="每行一个主题，格式：&#10;名称 | tag | prompt_seed&#10;&#10;示例：&#10;赛博修仙 | cyber-xianxia | 在一个科技与修仙并存的世界..."></textarea>
+          <span class="hint">名称必填，tag 和 prompt_seed 可选</span>
+        </div>
+      </div>
+
+      <div class="cfg-section">
+        <div class="cfg-title">模型参数</div>
+        <div class="param-row">
+          <label>模型</label>
+          <select id="param-model">
+            <option value="gpt-5.4">gpt-5.4</option>
+            <option value="deepseek-chat">deepseek-chat</option>
+            <option value="gpt-5">gpt-5</option>
+          </select>
+        </div>
+        <div class="param-row">
+          <label>Temperature</label>
+          <input type="range" id="param-temp" min="0" max="2" step="0.05" value="0.75">
+          <span class="val" id="param-temp-val">0.75</span>
+        </div>
+        <div class="param-row">
+          <label>Max Tokens</label>
+          <input type="number" id="param-tokens" min="512" max="32768" step="512" value="4096">
+        </div>
+      </div>
+
+      <button id="btn-start" onclick="startGeneration()">开始生成</button>
+    </div>
+  </div>
+
+  <!-- Right: Progress -->
+  <div id="progress-panel">
+    <div id="empty-state">
+      <div class="icon">&#9881;</div>
+      <div>选择主题并点击"开始生成"</div>
+    </div>
+
+    <div id="progress-header" style="display:none;">
+      <div class="status-text idle" id="status-text">就绪</div>
+      <div id="progress-bar-wrap"><div id="progress-bar-fill"></div></div>
+      <div id="progress-info">
+        <span id="prog-count">0 / 0</span>
+        <span id="prog-current"></span>
+      </div>
+    </div>
+
+    <div id="summary"></div>
+    <div id="progress-actions">
+      <button id="btn-cancel" onclick="cancelGeneration()">取消生成</button>
+    </div>
+
+    <div id="log-title" style="display:none;">生成日志</div>
+    <div id="log-stream"></div>
+  </div>
+</div>
+
+<script>
+// ── State ──
+let presets = [];
+let pollingTimer = null;
+
+// ── API helpers ──
+const API = {
+  async get(url) { const r = await fetch(url); return r.json(); },
+  async post(url, body) {
+    const r = await fetch(url, {
+      method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(body)
+    });
+    if (!r.ok) { const e = await r.json(); throw new Error(e.error || r.statusText); }
+    return r.json();
+  }
+};
+
+// ── Init ──
+async function init() {
+  // Load presets from API
+  try {
+    presets = await API.get('/api/generate/presets');
+  } catch (e) {
+    console.warn('Failed to load presets from API, using defaults:', e);
+    // Fallback presets
+    presets = [
+      {id:"01",tag:"urban-brainhole",name:"都市脑洞",market_share:"11%",competition:"红海",formula:"日常生活 × 超现实设定 × 密集爽点",references:"《我创造了怪物序列！》《我在精神病院学斩神》",prompt_seed:"一个普通都市青年，在某天获得了一个荒诞但强大的特殊能力..."},
+      {id:"02",tag:"eastern-xianxia",name:"东方仙侠",market_share:"10%",competition:"红海",formula:"修仙体系 × 独特金手指 × 升级打怪",references:"《凡骨》《洪荒，我把怨念当功德，大道懵了》",prompt_seed:"一个修仙世界的小人物，意外获得与众不同的金手指..."},
+      {id:"03",tag:"fantasy-brainhole",name:"玄幻脑洞",market_share:"10%",competition:"红海",formula:"异世界 × 脑洞设定 × 体系构建",references:"《系统赋我长生，活着终会无敌》",prompt_seed:"主角进入一个规则完全不同的异世界..."},
+      {id:"04",tag:"system-anti-trope",name:"系统反套路",market_share:"跨赛道高增长",competition:"蓝海机会",formula:"系统/金手指 × 预期违背 × 人性困境",references:"《都重生了才告诉我全家是反派》",prompt_seed:"主角获得了一个表面上逆天的系统/金手指..."},
+      {id:"05",tag:"rebirth-counterattack",name:"重生逆袭",market_share:"经典长青题材",competition:"红海（需差异化）",formula:"重生 × 信息差 × 逆天改命",references:"《莫欺老年穷：一天涨一年功力！》",prompt_seed:"主角带着前世记忆重生到人生关键节点..."},
+      {id:"06",tag:"apocalypse-scifi",name:"末世科幻",market_share:"稳定增长",competition:"蓝海",formula:"末世灾难 × 生存博弈 × 人性考验",references:"《全球冰封：我打造了末日安全屋》",prompt_seed:"一场前所未有的全球性灾难降临..."},
+      {id:"07",tag:"historical-strategy",name:"历史权谋",market_share:"约19%",competition:"中等竞争",formula:"真实历史背景 × 穿越/重生 × 智斗权谋",references:"《冒姓琅琊》",prompt_seed:"主角穿越/重生到某个真实历史时期..."},
+      {id:"08",tag:"rule-mystery",name:"规则怪谈",market_share:"700万追更",competition:"蓝海",formula:"诡异规则 × 死亡博弈 × 智斗解密",references:"《十日终焉》",prompt_seed:"主角被卷入一个由诡异规则支配的游戏/空间..."},
+      {id:"09",tag:"expert-descends",name:"高手下山",market_share:"持续稳定的流量池",competition:"红海",formula:"隐藏身份 × 都市装逼 × 层层打脸",references:"《我，满配二郎神，绑定软糯校花！》",prompt_seed:"一个拥有超凡能力/背景的人因为某种原因隐藏身份进入都市生活..."},
+      {id:"10",tag:"derivative-fanfic",name:"衍生同人",market_share:"十日首秀占比高达50%",competition:"蓝海（需注意版权）",formula:"经典IP世界观 × 原创主角 × 降维打击",references:"《海贼的巅峰！从罗杰团实习生开始》",prompt_seed:"主角穿越到经典动漫/影视/小说世界..."}
+    ];
+  }
+  renderThemeList();
+
+  // Check for existing task
+  await checkStatus();
+}
+
+function renderThemeList() {
+  const list = document.getElementById('theme-list');
+  list.innerHTML = presets.map(t => {
+    const compClass = t.competition.includes('红海') ? 'red' : t.competition.includes('蓝海') ? 'blue' : 'amber';
+    return `<label class="theme-item">
+      <input type="checkbox" value="${escHtml(t.id)}" data-theme='${escAttr(JSON.stringify(t))}'>
+      <span class="tname">[${escHtml(t.id)}] ${escHtml(t.name)}</span>
+      <span class="ttag">${escHtml(t.tag)}</span>
+      <span class="tcomp ${compClass}">${escHtml(t.competition)}</span>
+    </label>`;
+  }).join('');
+}
+
+function escHtml(s) {
+  const d = document.createElement('div');
+  d.textContent = String(s);
+  return d.innerHTML;
+}
+function escAttr(s) { return s.replace(/'/g, "\\'").replace(/"/g, '&quot;'); }
+
+// ── Theme selection ──
+function selectAll() {
+  document.querySelectorAll('#theme-list input[type="checkbox"]').forEach(cb => { cb.checked = true; });
+}
+function deselectAll() {
+  document.querySelectorAll('#theme-list input[type="checkbox"]').forEach(cb => { cb.checked = false; });
+}
+
+function getSelectedThemes() {
+  const themes = [];
+  // Preset themes
+  document.querySelectorAll('#theme-list input[type="checkbox"]:checked').forEach(cb => {
+    const t = JSON.parse(cb.dataset.theme);
+    themes.push({
+      id: t.id, tag: t.tag, name: t.name,
+      market_share: t.market_share, competition: t.competition,
+      formula: t.formula, references: t.references,
+      prompt_seed: t.prompt_seed
+    });
+  });
+  // Custom themes
+  const customText = document.getElementById('custom-input').value.trim();
+  if (customText) {
+    const lines = customText.split('\n').filter(l => l.trim());
+    lines.forEach((line, i) => {
+      const parts = line.split('|').map(s => s.trim());
+      const name = parts[0] || ('自定义主题 ' + (i + 1));
+      const tag = parts[1] || ('custom-' + (i + 1));
+      const prompt_seed = parts[2] || '';
+      themes.push({
+        id: 'c' + (i + 1),
+        tag: tag,
+        name: name,
+        market_share: '',
+        competition: '',
+        formula: '',
+        references: '',
+        prompt_seed: prompt_seed
+      });
+    });
+  }
+  return themes;
+}
+
+function toggleCustom() {
+  const area = document.getElementById('custom-area');
+  const btn = document.getElementById('custom-toggle');
+  if (area.classList.contains('open')) {
+    area.classList.remove('open');
+    btn.textContent = '+ 添加自定义主题';
+  } else {
+    area.classList.add('open');
+    btn.textContent = '- 收起自定义主题';
+  }
+}
+
+// ── Temperature slider ──
+document.getElementById('param-temp').addEventListener('input', function() {
+  document.getElementById('param-temp-val').textContent = this.value;
+});
+
+// ── Start Generation ──
+async function startGeneration() {
+  const themes = getSelectedThemes();
+  if (themes.length === 0) {
+    alert('请至少选择一个主题');
+    return;
+  }
+
+  const model = document.getElementById('param-model').value;
+  const temperature = parseFloat(document.getElementById('param-temp').value);
+  const max_tokens = parseInt(document.getElementById('param-tokens').value);
+
+  try {
+    const result = await API.post('/api/generate/start', {
+      themes: themes,
+      model: model,
+      temperature: temperature,
+      max_tokens: max_tokens
+    });
+    console.log('Task started:', result);
+    setRunning(true);
+    startPolling();
+  } catch (e) {
+    alert('启动失败: ' + e.message);
+  }
+}
+
+// ── Cancel ──
+async function cancelGeneration() {
+  try {
+    await API.post('/api/generate/cancel', {});
+    document.getElementById('btn-cancel').textContent = '正在取消...';
+    document.getElementById('btn-cancel').disabled = true;
+  } catch (e) {
+    alert('取消失败: ' + e.message);
+  }
+}
+
+// ── Polling ──
+function startPolling() {
+  if (pollingTimer) clearInterval(pollingTimer);
+  pollingTimer = setInterval(checkStatus, 2000);
+}
+
+function stopPolling() {
+  if (pollingTimer) {
+    clearInterval(pollingTimer);
+    pollingTimer = null;
+  }
+}
+
+async function checkStatus() {
+  try {
+    const status = await API.get('/api/generate/status');
+    renderStatus(status);
+  } catch (e) {
+    console.error('Status check failed:', e);
+  }
+}
+
+function renderStatus(s) {
+  const statusText = document.getElementById('status-text');
+  const progressFill = document.getElementById('progress-bar-fill');
+  const progCount = document.getElementById('prog-count');
+  const progCurrent = document.getElementById('prog-current');
+  const btnCancel = document.getElementById('btn-cancel');
+  const btnStart = document.getElementById('btn-start');
+  const emptyState = document.getElementById('empty-state');
+  const progressHeader = document.getElementById('progress-header');
+  const logTitle = document.getElementById('log-title');
+  const logStream = document.getElementById('log-stream');
+  const summary = document.getElementById('summary');
+  const configPanel = document.getElementById('config-panel');
+
+  // Update progress header
+  if (s.status === 'idle') {
+    emptyState.style.display = 'flex';
+    progressHeader.style.display = 'none';
+    logTitle.style.display = 'none';
+    btnCancel.classList.remove('visible');
+    btnStart.disabled = false;
+    stopPolling();
+    // Re-enable config
+    configPanel.style.opacity = '1';
+    configPanel.style.pointerEvents = 'auto';
+  } else {
+    emptyState.style.display = 'none';
+    progressHeader.style.display = 'block';
+    logTitle.style.display = 'block';
+
+    // Status text
+    statusText.className = 'status-text ' + s.status;
+    const statusLabels = {
+      'running': '正在生成...',
+      'completed': '生成完成',
+      'failed': '生成失败',
+      'cancelled': '已取消'
+    };
+    statusText.textContent = statusLabels[s.status] || s.status;
+
+    // Progress bar
+    const pct = s.total > 0 ? Math.round((s.completed || 0) / s.total * 100) : 0;
+    // Also count in-progress items
+    const generating = s.progress_log ? s.progress_log.filter(l => l.status === 'generating').length : 0;
+    const effective = s.total > 0 ? Math.round(((s.completed || 0) + generating * 0.5) / s.total * 100) : 0;
+    progressFill.style.width = Math.max(pct, effective) + '%';
+
+    // Count
+    progCount.textContent = `${s.completed || 0} / ${s.total || 0}`;
+    progCurrent.textContent = s.current_theme ? '当前: ' + s.current_theme : '';
+
+    // Cancel button
+    if (s.status === 'running') {
+      btnCancel.classList.add('visible');
+      btnCancel.textContent = '取消生成';
+      btnCancel.disabled = false;
+      btnStart.disabled = true;
+      configPanel.style.opacity = '0.6';
+      configPanel.style.pointerEvents = 'none';
+      if (!pollingTimer) startPolling();
+    } else {
+      btnCancel.classList.remove('visible');
+      btnStart.disabled = false;
+      configPanel.style.opacity = '1';
+      configPanel.style.pointerEvents = 'auto';
+      stopPolling();
+    }
+
+    // Log stream
+    if (s.progress_log && s.progress_log.length > 0) {
+      logStream.innerHTML = s.progress_log.map((l, i) => {
+        let statusClass = l.status;
+        let errorHtml = '';
+        if (l.status === 'failed' && l.error) {
+          errorHtml = `<span class="lerror">${escHtml(l.error)}</span>`;
+        }
+        return `<div class="log-entry">
+          <span class="lidx">#${i + 1}</span>
+          <span class="lstatus ${statusClass}">${l.status}</span>
+          <span class="lname">${escHtml(l.name || l.theme_id)}</span>
+          ${errorHtml}
+        </div>`;
+      }).join('');
+      logStream.scrollTop = logStream.scrollHeight;
+    }
+
+    // Summary for completed/failed/cancelled
+    if (s.status === 'completed' || s.status === 'failed' || s.status === 'cancelled') {
+      const ok = s.progress_log ? s.progress_log.filter(l => l.status === 'ok').length : 0;
+      const failed = s.progress_log ? s.progress_log.filter(l => l.status === 'failed').length : 0;
+      const skipped = s.progress_log ? s.progress_log.filter(l => l.status === 'pending').length : 0;
+
+      summary.classList.add('visible');
+      let sumTitle = '';
+      if (s.status === 'completed') sumTitle = '全部完成！';
+      else if (s.status === 'cancelled') sumTitle = '任务已取消';
+      else sumTitle = '任务失败';
+
+      summary.innerHTML = `
+        <div class="sum-title">${sumTitle}</div>
+        <div class="sum-detail">
+          成功: ${ok} | 失败: ${failed} | 跳过: ${skipped}
+          ${s.started_at ? ' | 开始: ' + s.started_at : ''}
+          ${s.finished_at ? ' | 完成: ' + s.finished_at : ''}
+          ${s.error ? '<br>错误: ' + escHtml(s.error) : ''}
+        </div>`;
+    } else {
+      summary.classList.remove('visible');
+    }
+  }
+}
+
+// ── Init ──
+init();
+</script>
+</body>
+</html>
