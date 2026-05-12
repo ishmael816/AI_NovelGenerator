@@ -6,7 +6,13 @@ import logging
 from dataclasses import dataclass
 from typing import Optional
 
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logging.basicConfig(
+    filename='app.log',
+    filemode='a',
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    datefmt='%Y-%m-%d %H:%M:%S'
+)
 
 TARGET_MIN = 2000
 TARGET_MAX = 2200
@@ -40,7 +46,8 @@ def measure_chapter(text: str) -> WordCount:
     return WordCount(chinese=chinese_chars, total=total_chars)
 
 
-def build_trim_prompt(text: str, excess: int) -> str:
+def build_trim_prompt(text: str, excess: int, target_range: tuple = (TARGET_MIN, TARGET_MAX)) -> str:
+    min_chars, max_chars = target_range
     return f"""请精简以下小说章节，删除约 {excess} 个中文字符（当前超出目标字数）。
 
 精简规则（必须严格遵守）：
@@ -49,7 +56,7 @@ def build_trim_prompt(text: str, excess: int) -> str:
 3. 优先删除：环境描写的冗余部分、内心独白的重复表述、过渡性叙述
 4. 禁止删除：角色间的对话、情节转折点、章末钩子
 
-目标字数范围：{TARGET_MIN}-{TARGET_MAX} 中文字符
+目标字数范围：{min_chars}-{max_chars} 中文字符
 
 原文：
 {text}
@@ -57,7 +64,8 @@ def build_trim_prompt(text: str, excess: int) -> str:
 请输出精简后的完整章节："""
 
 
-def build_expand_prompt(text: str, deficit: int) -> str:
+def build_expand_prompt(text: str, deficit: int, target_range: tuple = (TARGET_MIN, TARGET_MAX)) -> str:
+    min_chars, max_chars = target_range
     return f"""请扩展以下小说章节，增加约 {deficit} 个中文字符（当前不足目标字数）。
 
 扩展规则（必须严格遵守）：
@@ -67,7 +75,7 @@ def build_expand_prompt(text: str, deficit: int) -> str:
 4. 禁止用废话凑字数 — 禁止重复已有信息 — 禁止无意义的环境描写堆砌
 5. 扩展后不能稀释原有的钩子密度
 
-目标字数范围：{TARGET_MIN}-{TARGET_MAX} 中文字符
+目标字数范围：{min_chars}-{max_chars} 中文字符
 
 原文：
 {text}
@@ -108,10 +116,10 @@ def adjust_chapter(
 
         if wc.chinese > high:
             excess = wc.chinese - ((low + high) // 2)
-            prompt = build_trim_prompt(current_text, excess)
+            prompt = build_trim_prompt(current_text, excess, target_range)
         else:
             deficit = ((low + high) // 2) - wc.chinese
-            prompt = build_expand_prompt(current_text, deficit)
+            prompt = build_expand_prompt(current_text, deficit, target_range)
 
         try:
             from novel_generator.common import invoke_with_cleaning

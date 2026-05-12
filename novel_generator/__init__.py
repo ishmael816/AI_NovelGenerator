@@ -11,3 +11,12 @@ from .chapter import (
 from .finalization import finalize_chapter, enrich_chapter_text
 from .knowledge import import_knowledge_file
 from .vectorstore_utils import clear_vector_store
+from .word_count_control import (
+    WordCount,
+    AdjustedChapter,
+    measure_chapter,
+    adjust_chapter,
+    WORD_COUNT_CONSTRAINT,
+    TARGET_MIN,
+    TARGET_MAX
+)
