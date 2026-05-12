@@ -68,7 +68,9 @@ def load_review_constraints(outline_id: str, project_dir: str = None) -> ReviewC
                 constraints.constraints.append({
                     "section": ann.get("section_key", ""),
                     "constraint_text": ann.get("text", ""),
-                    "priority": "suggestion",
+                    "priority": ann.get("priority", "suggestion"),
                 })
+        # Sort: critical constraints first
+        constraints.constraints.sort(key=lambda c: 0 if c.get("priority") == "critical" else 1)
 
     return constraints
