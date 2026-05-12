@@ -45,6 +45,32 @@ def finalize_chapter(
         logging.warning(f"Chapter {novel_number} is empty, cannot finalize.")
         return
 
+    # P0-4: Word count adjustment
+    try:
+        from novel_generator.word_count_control import measure_chapter, adjust_chapter, TARGET_MIN, TARGET_MAX
+        wc = measure_chapter(chapter_text)
+        if not (TARGET_MIN <= wc.chinese <= TARGET_MAX):
+            logging.info(f"Chapter {novel_number} word count {wc.chinese} outside target ({TARGET_MIN}-{TARGET_MAX}), adjusting...")
+            llm_adapter = create_llm_adapter(
+                interface_format=interface_format,
+                base_url=base_url,
+                model_name=model_name,
+                api_key=api_key,
+                temperature=0.3,
+                max_tokens=max_tokens,
+                timeout=timeout
+            )
+            adjusted = adjust_chapter(chapter_text, target_range=(TARGET_MIN, TARGET_MAX), llm_adapter=llm_adapter)
+            if adjusted.text != chapter_text:
+                clear_file_content(chapter_file)
+                save_string_to_txt(adjusted.text, chapter_file)
+                chapter_text = adjusted.text
+                logging.info(f"Chapter {novel_number} adjusted to {adjusted.final_count} chars ({adjusted.adjustments} rounds)")
+            if adjusted.warning:
+                logging.warning(f"Chapter {novel_number}: {adjusted.warning}")
+    except ImportError:
+        pass
+
     global_summary_file = os.path.join(filepath, "global_summary.txt")
     old_global_summary = read_file(global_summary_file)
     character_state_file = os.path.join(filepath, "character_state.txt")
@@ -80,6 +106,54 @@ def finalize_chapter(
     save_string_to_txt(new_global_summary, global_summary_file)
     clear_file_content(character_state_file)
     save_string_to_txt(new_char_state, character_state_file)
+
+    # P0-3: Review constraint consistency check
+    constraints_file = os.path.join(filepath, "review_constraints.json")
+    consistency_result = None
+    if os.path.exists(constraints_file):
+        try:
+            import json as _json
+            with open(constraints_file, "r", encoding="utf-8") as f:
+                cdata = _json.load(f)
+            replaced = cdata.get("replaced_content", {})
+            clist = cdata.get("constraints", [])
+
+            if clist or replaced:
+                arch_file = os.path.join(filepath, "Novel_architecture.txt")
+                novel_setting = read_file(arch_file)
+                from consistency_checker import check_consistency
+                consistency_result = check_consistency(
+                    novel_setting=novel_setting,
+                    character_state=new_char_state,
+                    global_summary=new_global_summary,
+                    chapter_text=chapter_text,
+                    api_key=api_key,
+                    base_url=base_url,
+                    model_name=model_name,
+                    temperature=0.3,
+                    plot_arcs=_json.dumps(clist, ensure_ascii=False) if clist else "",
+                    interface_format=interface_format,
+                    max_tokens=max_tokens,
+                    timeout=timeout
+                )
+                logging.info(f"Chapter {novel_number} consistency check: {consistency_result[:200] if consistency_result else 'N/A'}")
+        except Exception as e:
+            logging.warning(f"Consistency check failed for chapter {novel_number}: {e}")
+
+    # Save consistency result for reader display
+    if consistency_result:
+        result_file = os.path.join(filepath, "consistency_log.json")
+        try:
+            import json as _json
+            log = []
+            if os.path.exists(result_file):
+                with open(result_file, "r", encoding="utf-8") as f:
+                    log = _json.load(f)
+            log.append({"chapter": novel_number, "result": consistency_result})
+            with open(result_file, "w", encoding="utf-8") as f:
+                _json.dump(log, f, ensure_ascii=False, indent=2)
+        except Exception:
+            pass
 
     update_vector_store(
         embedding_adapter=create_embedding_adapter(
