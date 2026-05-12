@@ -185,6 +185,67 @@ def _find_outline_json(outline_id):
     return None
 
 
+# ── Novel Reader helpers ──
+
+NOVEL_OUTPUT_DIR = os.path.join(PROJECT_DIR, "output")
+IGNORE_DIRS = {"outlines", "review"}
+
+
+def _get_novel_dirs():
+    """List all novel directories under output/."""
+    novels = []
+    if not os.path.isdir(NOVEL_OUTPUT_DIR):
+        return novels
+    for name in sorted(os.listdir(NOVEL_OUTPUT_DIR)):
+        full = os.path.join(NOVEL_OUTPUT_DIR, name)
+        if not os.path.isdir(full) or name in IGNORE_DIRS:
+            continue
+        novels.append(name)
+    return novels
+
+
+def _get_chapter_files(novel_name):
+    """Get sorted list of chapter filenames for a novel."""
+    chapters_dir = os.path.join(NOVEL_OUTPUT_DIR, novel_name, "chapters")
+    if not os.path.isdir(chapters_dir):
+        return []
+    files = []
+    for fn in os.listdir(chapters_dir):
+        m = re.match(r"^chapter_(\d+)\.txt$", fn)
+        if m:
+            files.append((int(m.group(1)), fn))
+    files.sort(key=lambda x: x[0])
+    return files
+
+
+def _parse_directory_titles(novel_name):
+    """Parse Novel_directory.txt to extract chapter titles."""
+    path = os.path.join(NOVEL_OUTPUT_DIR, novel_name, "Novel_directory.txt")
+    if not os.path.isfile(path):
+        return {}
+    titles = {}
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            content = f.read()
+        for m in re.finditer(r"第(\d+)章\s*[-—]\s*\[?(.+?)\]?(?:\n|$)", content):
+            titles[int(m.group(1))] = m.group(2).strip()
+    except (IOError, UnicodeDecodeError):
+        pass
+    return titles
+
+
+def _read_novel_file(novel_name, filename):
+    """Read a text file from a novel directory, return content or None."""
+    path = os.path.join(NOVEL_OUTPUT_DIR, novel_name, filename)
+    if not os.path.isfile(path):
+        return None
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            return f.read()
+    except (IOError, UnicodeDecodeError):
+        return None
+
+
 class _GenerationTask:
     """Singleton background task manager for outline generation."""
 
@@ -574,6 +635,104 @@ class APIHandler(BaseHTTPRequestHandler):
                     "prompt_seed": t["prompt_seed"],
                 })
             self._send_json(presets)
+            return
+
+        # ── Novel reader API ──
+
+        if path == "/api/novels":
+            novels = []
+            chapter_titles = {}
+            for name in _get_novel_dirs():
+                chapters = _get_chapter_files(name)
+                has_arch = os.path.isfile(os.path.join(NOVEL_OUTPUT_DIR, name, "Novel_architecture.txt"))
+                has_dir = os.path.isfile(os.path.join(NOVEL_OUTPUT_DIR, name, "Novel_directory.txt"))
+                has_summary = os.path.isfile(os.path.join(NOVEL_OUTPUT_DIR, name, "global_summary.txt"))
+                novels.append({
+                    "name": name,
+                    "chapter_count": len(chapters),
+                    "has_architecture": has_arch,
+                    "has_directory": has_dir,
+                    "has_summary": has_summary,
+                })
+            self._send_json(novels)
+            return
+
+        # /api/novels/{name}/chapters/{n}
+        m = re.match(r"^/api/novels/(.+)/chapters/(\d+)$", path)
+        if m:
+            novel_name = m.group(1)
+            ch_num = int(m.group(2))
+            if novel_name not in _get_novel_dirs():
+                self._send_error(404, f"Novel '{novel_name}' not found")
+                return
+            chapter_path = os.path.join(NOVEL_OUTPUT_DIR, novel_name, "chapters", f"chapter_{ch_num}.txt")
+            if not os.path.isfile(chapter_path):
+                self._send_error(404, f"Chapter {ch_num} not found")
+                return
+            content = _read_novel_file(novel_name, f"chapters/chapter_{ch_num}.txt")
+            titles = _parse_directory_titles(novel_name)
+            ch_title = titles.get(ch_num, "")
+            self._send_json({
+                "n": ch_num,
+                "title": ch_title,
+                "content": content,
+                "char_count": len(content) if content else 0,
+            })
+            return
+
+        # /api/novels/{name}/directory
+        m = re.match(r"^/api/novels/(.+)/directory$", path)
+        if m:
+            novel_name = m.group(1)
+            if novel_name not in _get_novel_dirs():
+                self._send_error(404, f"Novel '{novel_name}' not found")
+                return
+            content = _read_novel_file(novel_name, "Novel_directory.txt")
+            self._send_json({"name": novel_name, "content": content or ""})
+            return
+
+        # /api/novels/{name}/architecture
+        m = re.match(r"^/api/novels/(.+)/architecture$", path)
+        if m:
+            novel_name = m.group(1)
+            if novel_name not in _get_novel_dirs():
+                self._send_error(404, f"Novel '{novel_name}' not found")
+                return
+            content = _read_novel_file(novel_name, "Novel_architecture.txt")
+            self._send_json({"name": novel_name, "content": content or ""})
+            return
+
+        # /api/novels/{name}/summary
+        m = re.match(r"^/api/novels/(.+)/summary$", path)
+        if m:
+            novel_name = m.group(1)
+            if novel_name not in _get_novel_dirs():
+                self._send_error(404, f"Novel '{novel_name}' not found")
+                return
+            content = _read_novel_file(novel_name, "global_summary.txt")
+            self._send_json({"name": novel_name, "content": content or ""})
+            return
+
+        # /api/novels/{name} — novel info with chapter list
+        m = re.match(r"^/api/novels/(.+)$", path)
+        if m:
+            novel_name = m.group(1)
+            if novel_name not in _get_novel_dirs():
+                self._send_error(404, f"Novel '{novel_name}' not found")
+                return
+            chapters = _get_chapter_files(novel_name)
+            titles = _parse_directory_titles(novel_name)
+            has_arch = os.path.isfile(os.path.join(NOVEL_OUTPUT_DIR, novel_name, "Novel_architecture.txt"))
+            has_dir = os.path.isfile(os.path.join(NOVEL_OUTPUT_DIR, novel_name, "Novel_directory.txt"))
+            has_summary = os.path.isfile(os.path.join(NOVEL_OUTPUT_DIR, novel_name, "global_summary.txt"))
+            self._send_json({
+                "name": novel_name,
+                "chapter_count": len(chapters),
+                "has_architecture": has_arch,
+                "has_directory": has_dir,
+                "has_summary": has_summary,
+                "chapters": [{"n": n, "title": titles.get(n, "")} for n, _ in chapters],
+            })
             return
 
         # Static files

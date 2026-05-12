@@ -1,0 +1,531 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>小说阅读器 — NoverGen</title>
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+:root {
+  --bg: #0f1117;
+  --surface: #1a1d27;
+  --surface2: #242836;
+  --border: #2e3345;
+  --text: #e1e4ed;
+  --text2: #9ca3b4;
+  --accent: #6c8cff;
+  --accent2: #4a6cf7;
+  --red: #f87171;
+  --amber: #fbbf24;
+  --green: #34d399;
+  --blue: #60a5fa;
+  --radius: 8px;
+  --sidebar-w: 260px;
+  --read-max-w: 720px;
+}
+html, body { height: 100%; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* ── Top Bar ── */
+#topbar {
+  display: flex; align-items: center; gap: 12px;
+  padding: 8px 16px; background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0; height: 48px;
+}
+#topbar h1 { font-size: 15px; font-weight: 600; color: var(--text); }
+#topbar .spacer { flex: 1; }
+.nav-link {
+  color: var(--text2); text-decoration: none; font-size: 13px;
+  padding: 4px 10px; border-radius: 4px; transition: color .15s, background .15s;
+}
+.nav-link:hover { color: var(--text); background: var(--surface2); }
+.nav-link.active { color: var(--accent); }
+
+/* ── Layout ── */
+#app { display: flex; flex: 1; overflow: hidden; }
+
+/* ── Sidebar ── */
+#sidebar {
+  width: var(--sidebar-w); flex-shrink: 0;
+  background: var(--surface); border-right: 1px solid var(--border);
+  display: flex; flex-direction: column; overflow: hidden;
+}
+#sidebar-header {
+  padding: 12px 14px; font-size: 12px; font-weight: 600;
+  text-transform: uppercase; color: var(--text2);
+  letter-spacing: .05em; border-bottom: 1px solid var(--border);
+  display: flex; align-items: center; gap: 6px;
+  cursor: pointer;
+}
+#novel-list { flex: 1; overflow-y: auto; }
+.novel-group { border-bottom: 1px solid var(--border); }
+.novel-header {
+  padding: 10px 14px; cursor: pointer; font-size: 13px; font-weight: 600;
+  display: flex; align-items: center; gap: 6px;
+  transition: background .12s;
+}
+.novel-header:hover { background: var(--surface2); }
+.novel-header .arrow { font-size: 10px; color: var(--text2); transition: transform .15s; width: 12px; }
+.novel-header .arrow.open { transform: rotate(90deg); }
+.novel-header .count { font-size: 11px; color: var(--text2); margin-left: auto; }
+.novel-chapters { display: none; }
+.novel-chapters.open { display: block; }
+.chapter-link {
+  display: flex; align-items: center; gap: 8px;
+  padding: 6px 14px 6px 28px; cursor: pointer; font-size: 12px;
+  transition: background .12s; color: var(--text2);
+}
+.chapter-link:hover { background: var(--surface2); color: var(--text); }
+.chapter-link.active { background: var(--surface2); color: var(--accent); border-left: 3px solid var(--accent); padding-left: 25px; }
+.chapter-link .ch-num { color: var(--text2); font-size: 10px; min-width: 22px; }
+.chapter-link .ch-title { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* ── Main Reading Area ── */
+#main {
+  flex: 1; overflow-y: auto; display: flex; justify-content: center;
+  padding: 0 24px;
+}
+#reader-wrap {
+  width: 100%; max-width: var(--read-max-w); padding: 32px 0 80px;
+  display: flex; flex-direction: column;
+}
+
+/* ── Chapter Nav ── */
+.chapter-nav {
+  display: flex; align-items: center; justify-content: center; gap: 16px;
+  margin-bottom: 28px; flex-shrink: 0;
+}
+.chapter-nav button {
+  background: var(--surface2); border: 1px solid var(--border); color: var(--text);
+  padding: 6px 16px; border-radius: 4px; font-size: 13px; cursor: pointer;
+  transition: background .12s, border-color .12s;
+}
+.chapter-nav button:hover:not(:disabled) { background: var(--accent); color: #fff; border-color: var(--accent); }
+.chapter-nav button:disabled { opacity: .3; cursor: not-allowed; }
+.chapter-nav .nav-info { font-size: 13px; color: var(--text2); min-width: 120px; text-align: center; }
+
+/* ── Chapter Header ── */
+.chapter-header { margin-bottom: 24px; }
+.chapter-header .ch-label { font-size: 12px; color: var(--accent); font-weight: 600; margin-bottom: 4px; }
+.chapter-header .ch-title-text { font-size: 22px; font-weight: 700; line-height: 1.4; }
+.chapter-header .ch-meta { font-size: 12px; color: var(--text2); margin-top: 6px; }
+
+/* ── Chapter Content ── */
+#chapter-content {
+  font-size: 16px; line-height: 2; color: var(--text);
+  white-space: pre-wrap; word-break: break-word;
+}
+#chapter-content p { margin-bottom: 1em; }
+
+/* ── Bottom Nav ── */
+#bottom-nav {
+  display: flex; align-items: center; justify-content: center; gap: 16px;
+  margin-top: 40px; padding-top: 24px; border-top: 1px solid var(--border);
+}
+
+/* ── Empty State ── */
+#empty-state {
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  height: 100%; color: var(--text2); gap: 8px;
+}
+#empty-state .icon { font-size: 48px; opacity: .3; }
+
+/* ── Reading Controls ── */
+#reading-controls {
+  position: fixed; bottom: 20px; right: 24px;
+  display: flex; gap: 4px; background: var(--surface);
+  border: 1px solid var(--border); border-radius: var(--radius);
+  padding: 4px; z-index: 50;
+}
+#reading-controls button {
+  background: transparent; border: none; color: var(--text2);
+  width: 32px; height: 32px; border-radius: 4px; cursor: pointer;
+  font-size: 16px; transition: background .12s, color .12s;
+  display: flex; align-items: center; justify-content: center;
+}
+#reading-controls button:hover { background: var(--surface2); color: var(--text); }
+#reading-controls .ctrl-spacer { width: 1px; background: var(--border); margin: 4px 2px; }
+
+/* ── Blueprint Panel ── */
+#blueprint-toggle {
+  position: fixed; bottom: 20px; right: 160px;
+  background: var(--surface); border: 1px solid var(--border);
+  color: var(--text2); padding: 6px 12px; border-radius: var(--radius);
+  font-size: 12px; cursor: pointer; z-index: 50;
+  transition: background .12s, color .12s;
+}
+#blueprint-toggle:hover { background: var(--surface2); color: var(--text); }
+#blueprint-toggle.active { color: var(--accent); border-color: var(--accent); }
+#blueprint-panel {
+  position: fixed; top: 48px; right: 0; bottom: 0;
+  width: 360px; background: var(--surface); border-left: 1px solid var(--border);
+  z-index: 49; transform: translateX(100%); transition: transform .2s;
+  display: flex; flex-direction: column; overflow: hidden;
+}
+#blueprint-panel.open { transform: translateX(0); }
+#blueprint-header {
+  padding: 12px 14px; font-size: 12px; font-weight: 600;
+  color: var(--text2); border-bottom: 1px solid var(--border);
+  display: flex; align-items: center; gap: 8px; flex-shrink: 0;
+}
+#blueprint-header button {
+  margin-left: auto; background: none; border: none; color: var(--text2);
+  cursor: pointer; font-size: 16px;
+}
+#blueprint-content {
+  flex: 1; overflow-y: auto; padding: 14px;
+  font-size: 13px; line-height: 1.7; white-space: pre-wrap;
+}
+
+/* ── Scrollbar ── */
+::-webkit-scrollbar { width: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: var(--text2); }
+
+/* Loading */
+#loading { text-align: center; padding: 40px; color: var(--text2); }
+</style>
+</head>
+<body>
+
+<!-- Top Bar -->
+<div id="topbar">
+  <h1>NoverGen 阅读器</h1>
+  <span class="spacer"></span>
+  <a class="nav-link" href="/">审阅器</a>
+  <a class="nav-link" href="/generate.html">生成器</a>
+  <a class="nav-link active" href="/reader.html">阅读器</a>
+</div>
+
+<!-- App -->
+<div id="app">
+  <!-- Sidebar -->
+  <div id="sidebar">
+    <div id="sidebar-header">小说列表</div>
+    <div id="novel-list"></div>
+  </div>
+
+  <!-- Main -->
+  <div id="main">
+    <div id="empty-state">
+      <div class="icon">&#128214;</div>
+      <div>从左侧选择一部小说开始阅读</div>
+    </div>
+    <div id="reader-wrap" style="display:none;"></div>
+  </div>
+</div>
+
+<!-- Reading Controls -->
+<div id="blueprint-toggle" onclick="toggleBlueprint()" title="查看章节蓝图">&#128196; 蓝图</div>
+<div id="reading-controls">
+  <button onclick="changeFontSize(-1)" title="缩小字号">A-</button>
+  <button onclick="changeFontSize(1)" title="放大字号">A+</button>
+  <span class="ctrl-spacer"></span>
+  <button onclick="scrollToTop()" title="回到顶部">&#8593;</button>
+</div>
+
+<!-- Blueprint Panel -->
+<div id="blueprint-panel">
+  <div id="blueprint-header">
+    章节蓝图
+    <button onclick="toggleBlueprint()">&times;</button>
+  </div>
+  <div id="blueprint-content"></div>
+</div>
+
+<script>
+// ── State ──
+const state = {
+  novels: [],
+  currentNovel: null,
+  currentChapter: 1,
+  chapterCount: 0,
+  titles: {},
+  fontSize: 16,
+};
+
+// ── API ──
+const API = {
+  async get(url) { const r = await fetch(url); if (!r.ok) throw new Error(r.statusText); return r.json(); },
+};
+
+// ── Init ──
+async function init() {
+  // Restore reading position
+  const saved = loadPosition();
+  try {
+    state.novels = await API.get('/api/novels');
+    renderNovelList();
+    if (state.novels.length === 0) {
+      document.getElementById('novel-list').innerHTML =
+        '<div style="padding:20px;color:var(--text2);font-size:13px;">暂无小说数据</div>';
+      return;
+    }
+    // Restore previous reading position
+    if (saved && saved.novel) {
+      await selectNovel(saved.novel, saved.chapter || 1);
+    }
+  } catch (e) {
+    document.getElementById('novel-list').innerHTML =
+      '<div style="padding:20px;color:var(--red);font-size:13px;">加载失败: ' + e.message + '</div>';
+  }
+}
+
+// ── Position persistence ──
+function savePosition() {
+  if (!state.currentNovel) return;
+  const pos = {
+    novel: state.currentNovel,
+    chapter: state.currentChapter,
+    scrollTop: document.getElementById('main').scrollTop,
+    fontSize: state.fontSize,
+  };
+  localStorage.setItem('novergen_reader_pos', JSON.stringify(pos));
+}
+
+function loadPosition() {
+  try {
+    return JSON.parse(localStorage.getItem('novergen_reader_pos'));
+  } catch (e) { return null; }
+}
+
+// Auto-save on scroll
+let saveTimeout;
+document.addEventListener('DOMContentLoaded', () => {
+  document.getElementById('main').addEventListener('scroll', () => {
+    clearTimeout(saveTimeout);
+    saveTimeout = setTimeout(savePosition, 500);
+  });
+});
+
+// ── Novel List ──
+function renderNovelList() {
+  const list = document.getElementById('novel-list');
+  list.innerHTML = state.novels.map(n => {
+    const isOpen = state.currentNovel === n.name;
+    return `<div class="novel-group">
+      <div class="novel-header" onclick="toggleNovel('${escAttr(n.name)}')">
+        <span class="arrow${isOpen ? ' open' : ''}">&#9654;</span>
+        <span>${escHtml(n.name)}</span>
+        <span class="count">${n.chapter_count}章</span>
+      </div>
+      <div class="novel-chapters${isOpen ? ' open' : ''}" id="chapters-${escAttr(n.name)}"></div>
+    </div>`;
+  }).join('');
+
+  if (state.currentNovel) {
+    renderChapterList(state.currentNovel);
+  }
+}
+
+async function toggleNovel(name) {
+  if (state.currentNovel === name) {
+    state.currentNovel = null;
+    renderNovelList();
+    return;
+  }
+  await selectNovel(name);
+}
+
+async function selectNovel(name, targetChapter) {
+  state.currentNovel = name;
+  try {
+    const info = await API.get(`/api/novels/${encodeURIComponent(name)}`);
+    state.chapterCount = info.chapter_count;
+    state.titles = {};
+    info.chapters.forEach(c => { state.titles[c.n] = c.title; });
+    renderNovelList();
+    renderChapterList(name);
+
+    const ch = targetChapter || state.currentChapter;
+    if (ch >= 1 && ch <= state.chapterCount) {
+      await loadChapter(Math.min(ch, state.chapterCount));
+    } else if (state.chapterCount > 0) {
+      await loadChapter(1);
+    }
+  } catch (e) {
+    console.error('Failed to load novel:', e);
+  }
+}
+
+function renderChapterList(name) {
+  const container = document.getElementById('chapters-' + escAttr(name));
+  if (!container) return;
+
+  let html = '';
+  for (let i = 1; i <= state.chapterCount; i++) {
+    const title = state.titles[i] || '';
+    const active = i === state.currentChapter ? ' active' : '';
+    html += `<div class="chapter-link${active}" onclick="event.stopPropagation();loadChapter(${i})">
+      <span class="ch-num">${i}.</span>
+      <span class="ch-title">${escHtml(title || '第' + i + '章')}</span>
+    </div>`;
+  }
+  container.innerHTML = html;
+}
+
+// ── Chapter Loading ──
+async function loadChapter(n) {
+  if (!state.currentNovel) return;
+  state.currentChapter = n;
+
+  // Update chapter list highlighting
+  renderChapterList(state.currentNovel);
+
+  const main = document.getElementById('main');
+  const empty = document.getElementById('empty-state');
+  const wrap = document.getElementById('reader-wrap');
+
+  empty.style.display = 'none';
+  wrap.style.display = 'flex';
+  wrap.innerHTML = '<div id="loading">加载中...</div>';
+  main.scrollTop = 0;
+
+  try {
+    const ch = await API.get(`/api/novels/${encodeURIComponent(state.currentNovel)}/chapters/${n}`);
+    renderChapter(ch);
+    updateBlueprint(ch);
+    savePosition();
+
+    // Restore scroll position if same chapter
+    const saved = loadPosition();
+    if (saved && saved.novel === state.currentNovel && saved.chapter === n && saved.scrollTop) {
+      setTimeout(() => { main.scrollTop = saved.scrollTop; }, 100);
+    }
+  } catch (e) {
+    wrap.innerHTML = `<div style="text-align:center;padding:40px;color:var(--red);">加载失败: ${escHtml(e.message)}</div>`;
+  }
+}
+
+function renderChapter(ch) {
+  const wrap = document.getElementById('reader-wrap');
+  const hasPrev = ch.n > 1;
+  const hasNext = ch.n < state.chapterCount;
+
+  // Format content: wrap paragraphs
+  const paragraphs = ch.content.split('\n')
+    .map(p => p.trim())
+    .filter(p => p.length > 0)
+    .map(p => `<p>${escHtml(p)}</p>`)
+    .join('\n');
+
+  // Word count (Chinese characters + words)
+  const chineseChars = (ch.content.match(/[\u4e00-\u9fff]/g) || []).length;
+
+  wrap.innerHTML = `
+    <div class="chapter-nav">
+      <button ${hasPrev ? '' : 'disabled'} onclick="loadChapter(${ch.n - 1})">&#8592; 上一章</button>
+      <span class="nav-info">第 ${ch.n} / ${state.chapterCount} 章</span>
+      <button ${hasNext ? '' : 'disabled'} onclick="loadChapter(${ch.n + 1})">下一章 &#8594;</button>
+    </div>
+    <div class="chapter-header">
+      <div class="ch-label">第 ${ch.n} 章</div>
+      <div class="ch-title-text">${escHtml(ch.title || '')}</div>
+      <div class="ch-meta">${ch.char_count.toLocaleString()} 字符 | 约 ${chineseChars.toLocaleString()} 字</div>
+    </div>
+    <div id="chapter-content" style="font-size:${state.fontSize}px;">
+      ${paragraphs}
+    </div>
+    <div id="bottom-nav" class="chapter-nav">
+      <button ${hasPrev ? '' : 'disabled'} onclick="loadChapter(${ch.n - 1})">&#8592; 上一章</button>
+      <span class="nav-info">第 ${ch.n} / ${state.chapterCount} 章</span>
+      <button ${hasNext ? '' : 'disabled'} onclick="loadChapter(${ch.n + 1})">下一章 &#8594;</button>
+    </div>
+  `;
+}
+
+// ── Blueprint ──
+let blueprintData = '';
+
+async function updateBlueprint(ch) {
+  if (!state.currentNovel) return;
+  try {
+    const dir = await API.get(`/api/novels/${encodeURIComponent(state.currentNovel)}/directory`);
+    blueprintData = dir.content || '';
+    // Extract current chapter blueprint
+    const pattern = new RegExp(`第${ch.n}章[\\s\\S]*?(?=第${ch.n + 1}章|$)`, 'g');
+    // Simpler approach: split by chapter headers and find the right one
+    renderBlueprintForChapter(ch.n);
+  } catch (e) {
+    blueprintData = '';
+  }
+}
+
+function renderBlueprintForChapter(n) {
+  const content = document.getElementById('blueprint-content');
+  if (!blueprintData) {
+    content.innerHTML = '<div style="color:var(--text2);">暂无蓝图数据</div>';
+    return;
+  }
+  // Find the section for this chapter
+  const sections = blueprintData.split(/^(?=第\d+章)/m);
+  let found = '';
+  for (const sec of sections) {
+    if (sec.trim().startsWith(`第${n}章`)) {
+      found = sec.trim();
+      break;
+    }
+  }
+  if (!found) {
+    // Fallback: show first few lines
+    found = blueprintData.split('\n').slice(0, 20).join('\n');
+  }
+  content.textContent = found || '未找到本章蓝图';
+}
+
+function toggleBlueprint() {
+  const panel = document.getElementById('blueprint-panel');
+  const btn = document.getElementById('blueprint-toggle');
+  panel.classList.toggle('open');
+  btn.classList.toggle('active');
+}
+
+// ── Font Size ──
+function changeFontSize(delta) {
+  state.fontSize = Math.max(12, Math.min(24, state.fontSize + delta));
+  const content = document.getElementById('chapter-content');
+  if (content) content.style.fontSize = state.fontSize + 'px';
+  savePosition();
+}
+
+function scrollToTop() {
+  document.getElementById('main').scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+// ── Keyboard Shortcuts ──
+document.addEventListener('keydown', function(e) {
+  // Don't capture when typing in inputs
+  if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+
+  if (e.key === 'ArrowRight' && state.currentChapter < state.chapterCount) {
+    e.preventDefault();
+    loadChapter(state.currentChapter + 1);
+  } else if (e.key === 'ArrowLeft' && state.currentChapter > 1) {
+    e.preventDefault();
+    loadChapter(state.currentChapter - 1);
+  }
+});
+
+// ── Helpers ──
+function escHtml(s) {
+  if (!s) return '';
+  const d = document.createElement('div');
+  d.textContent = String(s);
+  return d.innerHTML;
+}
+function escAttr(s) { return String(s).replace(/'/g, "\\'").replace(/"/g, '&quot;'); }
+
+// ── Init ──
+init();
+</script>
+</body>
+</html>
