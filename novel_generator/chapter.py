@@ -16,6 +16,16 @@ from novel_generator.vectorstore_utils import (
     get_relevant_context_from_vector_store,
     load_vector_store  # 添加导入
 )
+
+# Quality module imports
+try:
+    from novel_generator.word_count_control import WORD_COUNT_CONSTRAINT
+except ImportError:
+    WORD_COUNT_CONSTRAINT = ""
+try:
+    from novel_generator.hook_engine import HOOK_REQUIREMENT_PROMPT
+except ImportError:
+    HOOK_REQUIREMENT_PROMPT = ""
 logging.basicConfig(
     filename='app.log',      # 日志文件名
     filemode='a',            # 追加模式（'w' 会覆盖）
@@ -348,7 +358,7 @@ def build_chapter_prompt(
 
     # 第一章特殊处理
     if novel_number == 1:
-        return prompt_definitions.first_chapter_draft_prompt.format(
+        base_prompt = prompt_definitions.first_chapter_draft_prompt.format(
             novel_number=novel_number,
             word_number=word_number,
             chapter_title=chapter_title,
@@ -365,6 +375,7 @@ def build_chapter_prompt(
             user_guidance=user_guidance,
             novel_setting=novel_architecture_text
         )
+        return _append_quality_constraints(base_prompt, filepath, novel_number)
 
     # 获取前文内容和摘要
     recent_texts = get_last_n_chapters_text(chapters_dir, novel_number, n=3)
@@ -493,7 +504,7 @@ def build_chapter_prompt(
         filtered_context = "（知识库处理失败）"
 
     # 返回最终提示词
-    return prompt_definitions.next_chapter_draft_prompt.format(
+    base_prompt = prompt_definitions.next_chapter_draft_prompt.format(
         user_guidance=user_guidance if user_guidance else "无特殊指导",
         global_summary=global_summary_text,
         previous_chapter_excerpt=previous_excerpt,
@@ -522,6 +533,43 @@ def build_chapter_prompt(
         next_chapter_summary=next_chapter_summary,
         filtered_context=filtered_context
     )
+    return _append_quality_constraints(base_prompt, filepath, novel_number)
+
+
+def _append_quality_constraints(base_prompt: str, filepath: str, chapter_num: int) -> str:
+    """Append word count, hook, and review constraints to the generation prompt."""
+    parts = [base_prompt]
+
+    # P0-4: Word count constraint
+    if WORD_COUNT_CONSTRAINT:
+        parts.append(WORD_COUNT_CONSTRAINT)
+
+    # P0-2: Hook requirement
+    if HOOK_REQUIREMENT_PROMPT:
+        parts.append(HOOK_REQUIREMENT_PROMPT)
+
+    # P0-3: Review constraints from novel directory
+    constraints_file = os.path.join(filepath, "review_constraints.json")
+    if os.path.exists(constraints_file):
+        try:
+            import json as _json
+            with open(constraints_file, "r", encoding="utf-8") as f:
+                cdata = _json.load(f)
+            clist = cdata.get("constraints", [])
+            if clist:
+                lines = ["", "【审阅约束 - 本章必须遵守】"]
+                for i, c in enumerate(clist, 1):
+                    priority = c.get("priority", "suggestion")
+                    section = c.get("section", "")
+                    text = c.get("constraint_text", "")
+                    prefix = "CRITICAL" if priority == "critical" else "SUGGESTION"
+                    lines.append(f"{i}. [{prefix}/{section}] {text}")
+                parts.append("\n".join(lines))
+        except Exception:
+            pass
+
+    return "\n\n".join(parts)
+
 
 def generate_chapter_draft(
     api_key: str,
