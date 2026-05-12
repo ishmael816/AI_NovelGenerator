@@ -74,7 +74,10 @@ def _create_client():
     with open(config_path, "r", encoding="utf-8") as f:
         config = json.load(f)
     provider = "NetEase LeiHuo"
-    llm_cfg = config["llm_configs"][provider]
+    try:
+        llm_cfg = config["llm_configs"][provider]
+    except KeyError as e:
+        raise RuntimeError(f"Config missing provider '{provider}': {e}") from e
     from openai import OpenAI
     return OpenAI(api_key=llm_cfg["api_key"], base_url=llm_cfg["base_url"].rstrip("/") + "/v1")
 
@@ -112,11 +115,11 @@ def detect_hooks(chapter_text: str) -> dict:
     raw = _call_llm(HOOK_DETECT_SYSTEM, user_prompt, temperature=0.3, max_tokens=2048)
 
     try:
+        import re as _re
         raw = raw.strip()
-        if raw.startswith("```"):
-            raw = raw.split("\n", 1)[1]
-            if raw.endswith("```"):
-                raw = raw[:-3]
+        m = _re.search(r'```(?:json)?\s*\n(.*?)\n```', raw, _re.DOTALL)
+        if m:
+            raw = m.group(1).strip()
         result = json.loads(raw)
         if isinstance(result, dict):
             return result
@@ -141,11 +144,11 @@ def generate_cliffhanger(chapter_content: str, next_blueprint: str) -> list[dict
     raw = _call_llm(CLIFFHANGER_SYSTEM, user_prompt, temperature=0.7, max_tokens=1024)
 
     try:
+        import re as _re
         raw = raw.strip()
-        if raw.startswith("```"):
-            raw = raw.split("\n", 1)[1]
-            if raw.endswith("```"):
-                raw = raw[:-3]
+        m = _re.search(r'```(?:json)?\s*\n(.*?)\n```', raw, _re.DOTALL)
+        if m:
+            raw = m.group(1).strip()
         result = json.loads(raw)
         if isinstance(result, list):
             return result
