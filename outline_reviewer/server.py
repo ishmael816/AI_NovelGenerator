@@ -79,6 +79,12 @@ def _load_queue():
 def _save_queue(data):
     _save_json(QUEUE_FILE, data)
 
+def _count_jsonl(path):
+    if not os.path.exists(path):
+        return 0
+    with open(path, "r", encoding="utf-8") as f:
+        return sum(1 for _ in f)
+
 
 def _parse_outline_sections(content):
     """Parse raw outline markdown into structured sections."""
@@ -1031,6 +1037,27 @@ class APIHandler(BaseHTTPRequestHandler):
                     'before_context': before,
                     'after_context': after
                 })
+            except Exception as e:
+                self._send_error(500, str(e))
+            return
+
+        # POST /api/rewrite-log - save rewrite record for data flywheel
+        if path == "/api/rewrite-log":
+            try:
+                body = self._read_body()
+                record = {
+                    "timestamp": datetime.now().isoformat(),
+                    "novel_name": body.get("novel_name", ""),
+                    "chapter_num": body.get("chapter_num", 0),
+                    "original_text": body.get("original_text", ""),
+                    "instruction": body.get("instruction", ""),
+                    "ai_rewritten": body.get("ai_rewritten", ""),
+                    "user_edited": body.get("user_edited", ""),
+                }
+                log_path = os.path.join(REVIEW_DIR, "rewrite_history.jsonl")
+                with open(log_path, "a", encoding="utf-8") as f:
+                    f.write(json.dumps(record, ensure_ascii=False) + "\n")
+                self._send_json({"status": "logged", "total": _count_jsonl(log_path)})
             except Exception as e:
                 self._send_error(500, str(e))
             return

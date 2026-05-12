@@ -196,7 +196,7 @@ body {
 
 /* === 浮动改写工具条 === */
 .rewrite-toolbar {
-    position: absolute;
+    position: fixed;
     z-index: 10000;
     background: #2a2a2a;
     border: 1px solid #555;
@@ -407,6 +407,8 @@ let rewriteSelection = null;     // {text, startPos, endPos}
 let rewriteResult = null;        // {original, rewritten}
 let currentNovelName = '';
 let currentChapterNum = 0;
+let rewriteHistory = [];
+let lastRewriteInstruction = '';
 
 // ── Init ──
 async function init() {
@@ -776,6 +778,13 @@ function scrollToTop() {
 
 // ── Keyboard Shortcuts ──
 document.addEventListener('keydown', function(e) {
+  // Ctrl+Enter: trigger rewrite with custom instruction (works even in inputs)
+  if (e.ctrlKey && e.key === 'Enter' && rewriteSelection) {
+    e.preventDefault();
+    rewriteCustom();
+    return;
+  }
+
   // Don't capture when typing in inputs
   if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
 
@@ -842,7 +851,7 @@ document.addEventListener('mouseup', function(e) {
         const rect = range.getBoundingClientRect();
         const toolbar = document.getElementById('rewriteToolbar');
         toolbar.style.left = Math.min(rect.left, window.innerWidth - 430) + 'px';
-        toolbar.style.top = (rect.bottom + window.scrollY + 8) + 'px';
+        toolbar.style.top = (rect.bottom + 8) + 'px';
         toolbar.classList.add('visible');
 
         // Clear custom input
@@ -903,6 +912,7 @@ async function executeRewrite(styleId, instruction) {
 
     // Show loading
     document.getElementById('rewriteLoading').style.display = 'block';
+    lastRewriteInstruction = instruction;
 
     try {
         const res = await fetch('/api/rewrite', {
@@ -921,6 +931,7 @@ async function executeRewrite(styleId, instruction) {
 
         // Render diff modal
         renderDiff(data.original, data.rewritten);
+        setupSyncScroll();
         document.getElementById('diffOverlay').classList.add('visible');
     } catch (e) {
         alert('改写失败: ' + e.message);
@@ -929,31 +940,45 @@ async function executeRewrite(styleId, instruction) {
     }
 }
 
-// Character-level diff using common prefix/suffix
-function computeDiff(original, rewritten) {
-    const origChars = [...original];
-    const newChars = [...rewritten];
+// Sentence-level diff: split by punctuation, diff whole sentences
+function splitSentences(text) {
+    const result = [];
+    let current = '';
+    for (const ch of [...text]) {
+        current += ch;
+        if ('。！？…'.includes(ch)) {
+            result.push(current);
+            current = '';
+        }
+    }
+    if (current) result.push(current);
+    return result;
+}
 
-    // Find common prefix
-    let prefixLen = 0;
-    while (prefixLen < origChars.length && prefixLen < newChars.length
-           && origChars[prefixLen] === newChars[prefixLen]) {
-        prefixLen++;
+function computeDiff(original, rewritten) {
+    const origSents = splitSentences(original);
+    const newSents = splitSentences(rewritten);
+
+    // Find common sentence prefix
+    let sentPrefixLen = 0;
+    while (sentPrefixLen < origSents.length && sentPrefixLen < newSents.length
+           && origSents[sentPrefixLen] === newSents[sentPrefixLen]) {
+        sentPrefixLen++;
     }
 
-    // Find common suffix
-    let suffixLen = 0;
-    while (suffixLen < origChars.length - prefixLen
-           && suffixLen < newChars.length - prefixLen
-           && origChars[origChars.length - 1 - suffixLen] === newChars[newChars.length - 1 - suffixLen]) {
-        suffixLen++;
+    // Find common sentence suffix
+    let sentSuffixLen = 0;
+    while (sentSuffixLen < origSents.length - sentPrefixLen
+           && sentSuffixLen < newSents.length - sentPrefixLen
+           && origSents[origSents.length - 1 - sentSuffixLen] === newSents[newSents.length - 1 - sentSuffixLen]) {
+        sentSuffixLen++;
     }
 
     return {
-        prefix: original.substring(0, prefixLen),
-        deleted: original.substring(prefixLen, original.length - suffixLen),
-        inserted: rewritten.substring(prefixLen, rewritten.length - suffixLen),
-        suffix: original.substring(original.length - suffixLen)
+        prefixSents: origSents.slice(0, sentPrefixLen),
+        deletedSents: origSents.slice(sentPrefixLen, origSents.length - sentSuffixLen),
+        insertedSents: newSents.slice(sentPrefixLen, newSents.length - sentSuffixLen),
+        suffixSents: origSents.slice(origSents.length - sentSuffixLen)
     };
 }
 
@@ -962,17 +987,40 @@ function renderDiff(original, rewritten) {
 
     // Original side
     let origHTML = '';
-    if (diff.prefix) origHTML += '<span class="diff-eq">' + escHtml(diff.prefix) + '</span>';
-    if (diff.deleted) origHTML += '<span class="diff-del">' + escHtml(diff.deleted) + '</span>';
-    if (diff.suffix) origHTML += '<span class="diff-eq">' + escHtml(diff.suffix) + '</span>';
+    if (diff.prefixSents.length) origHTML += '<span class="diff-eq">' + escHtml(diff.prefixSents.join('')) + '</span>';
+    if (diff.deletedSents.length) origHTML += '<span class="diff-del">' + escHtml(diff.deletedSents.join('')) + '</span>';
+    if (diff.suffixSents.length) origHTML += '<span class="diff-eq">' + escHtml(diff.suffixSents.join('')) + '</span>';
     document.getElementById('diffOriginal').innerHTML = origHTML;
 
     // Rewritten side
     let newHTML = '';
-    if (diff.prefix) newHTML += '<span class="diff-eq">' + escHtml(diff.prefix) + '</span>';
-    if (diff.inserted) newHTML += '<span class="diff-ins">' + escHtml(diff.inserted) + '</span>';
-    if (diff.suffix) newHTML += '<span class="diff-eq">' + escHtml(diff.suffix) + '</span>';
+    if (diff.prefixSents.length) newHTML += '<span class="diff-eq">' + escHtml(diff.prefixSents.join('')) + '</span>';
+    if (diff.insertedSents.length) newHTML += '<span class="diff-ins">' + escHtml(diff.insertedSents.join('')) + '</span>';
+    if (diff.suffixSents.length) newHTML += '<span class="diff-eq">' + escHtml(diff.suffixSents.join('')) + '</span>';
     document.getElementById('diffRewritten').innerHTML = newHTML;
+
+    // Update undo button state
+    document.getElementById('undoRewriteBtn').disabled = (rewriteHistory.length === 0);
+}
+
+function setupSyncScroll() {
+    const leftPane = document.querySelector('.diff-pane.left');
+    const rightPane = document.querySelector('.diff-pane.right');
+    if (!leftPane || !rightPane) return;
+
+    let syncing = false;
+    leftPane.onscroll = function() {
+        if (syncing) return;
+        syncing = true;
+        rightPane.scrollTop = leftPane.scrollTop;
+        syncing = false;
+    };
+    rightPane.onscroll = function() {
+        if (syncing) return;
+        syncing = true;
+        leftPane.scrollTop = rightPane.scrollTop;
+        syncing = false;
+    };
 }
 
 function closeDiff() {
@@ -984,9 +1032,25 @@ async function applyRewrite() {
 
     const contentArea = document.getElementById('chapter-content');
     const fullText = contentArea.textContent;
+
+    // Get edited text from contentEditable pane
+    const rewrittenPane = document.getElementById('diffRewritten');
+    const editedText = rewrittenPane.textContent;
+
     const newText = fullText.substring(0, rewriteSelection.startPos)
-        + rewriteResult.rewritten
+        + editedText
         + fullText.substring(rewriteSelection.endPos);
+
+    // Push to history before applying
+    rewriteHistory.push({
+        chapterNum: currentChapterNum,
+        novelName: currentNovelName,
+        originalText: fullText,
+        newText: newText,
+        startPos: rewriteSelection.startPos,
+        endPos: rewriteSelection.endPos,
+        timestamp: Date.now()
+    });
 
     // Save to server
     try {
@@ -996,13 +1060,67 @@ async function applyRewrite() {
             body: JSON.stringify({ content: newText })
         });
         if (!res.ok) throw new Error('Failed to save');
+
+        // Data flywheel: log rewrite record (fire-and-forget)
+        fetch('/api/rewrite-log', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                novel_name: currentNovelName,
+                chapter_num: currentChapterNum,
+                original_text: rewriteResult.original,
+                instruction: lastRewriteInstruction,
+                ai_rewritten: rewriteResult.rewritten,
+                user_edited: editedText
+            })
+        }).catch(() => {});
     } catch (e) {
         alert('保存失败: ' + e.message);
+        rewriteHistory.pop();
+        return;
+    }
+
+    // Update local display - rebuild paragraphs
+    const paragraphs = newText.split('\n')
+        .map(p => p.trim())
+        .filter(p => p.length > 0)
+        .map(p => `<p>${escHtml(p)}</p>`)
+        .join('\n');
+    contentArea.innerHTML = paragraphs;
+
+    closeDiff();
+    rewriteResult = null;
+    rewriteSelection = null;
+}
+
+async function undoLastRewrite() {
+    if (!rewriteHistory.length) return;
+
+    const last = rewriteHistory.pop();
+
+    // Restore original to server
+    try {
+        const res = await fetch('/api/novels/' + encodeURIComponent(last.novelName) + '/chapters/' + last.chapterNum, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ content: last.originalText })
+        });
+        if (!res.ok) throw new Error('Failed to save');
+    } catch (e) {
+        alert('撤销失败: ' + e.message);
+        rewriteHistory.push(last);
         return;
     }
 
     // Update local display
-    contentArea.textContent = newText;
+    const contentArea = document.getElementById('chapter-content');
+    const paragraphs = last.originalText.split('\n')
+        .map(p => p.trim())
+        .filter(p => p.length > 0)
+        .map(p => `<p>${escHtml(p)}</p>`)
+        .join('\n');
+    contentArea.innerHTML = paragraphs;
+
     closeDiff();
     rewriteResult = null;
     rewriteSelection = null;
@@ -1042,6 +1160,7 @@ init();
         <div class="diff-header">
             <h3>改写对比</h3>
             <div>
+                <button id="undoRewriteBtn" onclick="undoLastRewrite()" style="background:#f44336;border-color:#f44336;color:#fff;margin-right:8px;" disabled>撤销上次改写</button>
                 <button class="apply-btn" onclick="applyRewrite()">应用改写</button>
                 <button onclick="closeDiff()">关闭</button>
             </div>
@@ -1052,8 +1171,8 @@ init();
                 <div id="diffOriginal"></div>
             </div>
             <div class="diff-pane right">
-                <h4>改写</h4>
-                <div id="diffRewritten"></div>
+                <h4>改写（可直接编辑）</h4>
+                <div id="diffRewritten" contenteditable="true"></div>
             </div>
         </div>
     </div>
