@@ -226,6 +226,8 @@ body {
 
 <!-- Reading Controls -->
 <div id="blueprint-toggle" onclick="toggleBlueprint()" title="查看章节蓝图">&#128196; 蓝图</div>
+<div id="hook-toggle" onclick="toggleHookPanel()" title="查看钩子密度" style="position:fixed;bottom:20px;right:240px;background:var(--surface);border:1px solid var(--border);color:var(--text2);padding:6px 12px;border-radius:var(--radius);font-size:12px;cursor:pointer;z-index:50;">&#9878; 钩子</div>
+<div id="constraint-toggle" onclick="toggleConstraintPanel()" title="查看审阅约束" style="position:fixed;bottom:20px;right:310px;background:var(--surface);border:1px solid var(--border);color:var(--text2);padding:6px 12px;border-radius:var(--radius);font-size:12px;cursor:pointer;z-index:50;">&#10003; 约束</div>
 <div id="reading-controls">
   <button onclick="changeFontSize(-1)" title="缩小字号">A-</button>
   <button onclick="changeFontSize(1)" title="放大字号">A+</button>
@@ -240,6 +242,24 @@ body {
     <button onclick="toggleBlueprint()">&times;</button>
   </div>
   <div id="blueprint-content"></div>
+</div>
+
+<!-- Hook Density Panel -->
+<div id="hook-panel" style="position:fixed;top:48px;right:0;bottom:0;width:300px;background:var(--surface);border-left:1px solid var(--border);z-index:48;transform:translateX(100%);transition:transform .2s;display:flex;flex-direction:column;overflow:hidden;">
+  <div style="padding:12px 14px;font-size:12px;font-weight:600;color:var(--text2);border-bottom:1px solid var(--border);flex-shrink:0;display:flex;align-items:center;gap:8px;">
+    钩子密度分析
+    <button onclick="toggleHookPanel()" style="margin-left:auto;background:none;border:none;color:var(--text2);cursor:pointer;font-size:16px;">&times;</button>
+  </div>
+  <div id="hook-panel-content" style="flex:1;overflow-y:auto;padding:14px;font-size:13px;"></div>
+</div>
+
+<!-- Constraint Panel (for P0-3) -->
+<div id="constraint-panel" style="position:fixed;top:48px;right:0;bottom:0;width:360px;background:var(--surface);border-left:1px solid var(--border);z-index:48;transform:translateX(100%);transition:transform .2s;display:flex;flex-direction:column;overflow:hidden;">
+  <div style="padding:12px 14px;font-size:12px;font-weight:600;color:var(--text2);border-bottom:1px solid var(--border);flex-shrink:0;display:flex;align-items:center;gap:8px;">
+    审阅约束对照
+    <button onclick="toggleConstraintPanel()" style="margin-left:auto;background:none;border:none;color:var(--text2);cursor:pointer;font-size:16px;">&times;</button>
+  </div>
+  <div id="constraint-panel-content" style="flex:1;overflow-y:auto;padding:14px;font-size:13px;"></div>
 </div>
 
 <script>
@@ -394,6 +414,7 @@ async function loadChapter(n) {
     const ch = await API.get(`/api/novels/${encodeURIComponent(state.currentNovel)}/chapters/${n}`);
     renderChapter(ch);
     updateBlueprint(ch);
+    loadConstraintStatus();
     savePosition();
 
     // Restore scroll position if same chapter
@@ -487,6 +508,125 @@ function toggleBlueprint() {
   const btn = document.getElementById('blueprint-toggle');
   panel.classList.toggle('open');
   btn.classList.toggle('active');
+}
+
+// ── Hook Panel ──
+async function loadHookAnalysis() {
+  if (!state.currentNovel) return;
+  const panel = document.getElementById('hook-panel-content');
+  panel.innerHTML = '<div style="color:var(--text2);">加载中...</div>';
+  try {
+    const report = await API.get('/api/novels/' + encodeURIComponent(state.currentNovel) + '/chapters/' + state.currentChapter + '/hooks');
+    renderHookReport(report);
+  } catch (e) {
+    panel.innerHTML = '<div style="color:var(--red);">钩子分析失败: ' + escHtml(e.message) + '</div>';
+  }
+}
+
+function renderHookReport(report) {
+  const panel = document.getElementById('hook-panel-content');
+  const score = report.score || 0;
+  const scoreColor = score >= 70 ? 'var(--green)' : score >= 40 ? 'var(--amber)' : 'var(--red)';
+
+  let html = '<div style="margin-bottom:12px;">' +
+    '<div style="font-size:24px;font-weight:700;color:' + scoreColor + ';">' + score + '</div>' +
+    '<div style="font-size:11px;color:var(--text2);">钩子评分 / 100</div>' +
+    '</div>';
+
+  html += '<div style="margin-bottom:12px;font-size:12px;">' +
+    '<div>密度: ' + (report.density || 0).toFixed(1) + ' 个/千字</div>' +
+    '<div>章末强力钩子: ' + (report.end_cliffhanger ? '<span style="color:var(--green);">有</span>' : '<span style="color:var(--red);">无</span>') + '</div>' +
+    '</div>';
+
+  if (report.distribution) {
+    html += '<div style="margin-bottom:12px;font-size:12px;">分布: ' +
+      '前1/3: ' + (report.distribution['前1/3'] || 0) + ' | ' +
+      '中1/3: ' + (report.distribution['中1/3'] || 0) + ' | ' +
+      '后1/3: ' + (report.distribution['后1/3'] || 0) +
+      '</div>';
+  }
+
+  if (report.hooks && report.hooks.length > 0) {
+    html += '<div style="font-size:12px;font-weight:600;margin-bottom:6px;color:var(--text2);">钩子列表</div>';
+    report.hooks.forEach(h => {
+      const color = h.strength >= 0.7 ? 'var(--green)' : h.strength >= 0.4 ? 'var(--amber)' : 'var(--text2)';
+      html += '<div style="padding:4px 0;border-bottom:1px solid var(--border);font-size:11px;">' +
+        '<span style="color:' + color + ';font-weight:600;">' + h.type + '</span> ' +
+        '<span style="color:var(--text2);">(' + h.strength + ')</span>' +
+        '<div style="color:var(--text2);">' + escHtml(h.text_snippet || '') + '</div>' +
+        '</div>';
+    });
+  }
+
+  if (report.summary) {
+    html += '<div style="margin-top:8px;font-size:11px;color:var(--text2);">' + escHtml(report.summary) + '</div>';
+  }
+
+  panel.innerHTML = html;
+}
+
+function toggleHookPanel() {
+  const panel = document.getElementById('hook-panel');
+  const btn = document.getElementById('hook-toggle');
+  const isOpen = panel.style.transform === 'translateX(0px)';
+  panel.style.transform = isOpen ? 'translateX(100%)' : 'translateX(0px)';
+  if (!isOpen) {
+    loadHookAnalysis();
+    btn.style.color = 'var(--accent)';
+    btn.style.borderColor = 'var(--accent)';
+  } else {
+    btn.style.color = 'var(--text2)';
+    btn.style.borderColor = 'var(--border)';
+  }
+}
+
+// ── Constraint Panel ──
+async function loadConstraintStatus() {
+  if (!state.currentNovel) return;
+  const panel = document.getElementById('constraint-panel-content');
+  try {
+    const result = await API.get('/api/novels/' + encodeURIComponent(state.currentNovel) + '/constraints');
+    const clist = result.constraints || [];
+    const replaced = result.replaced_content || {};
+
+    if (clist.length === 0 && Object.keys(replaced).length === 0) {
+      panel.innerHTML = '<div style="color:var(--text2);">暂无审阅约束</div>';
+      return;
+    }
+
+    let html = '';
+    if (Object.keys(replaced).length > 0) {
+      html += '<div style="font-size:12px;font-weight:600;margin-bottom:8px;color:var(--green);">已替换章节: ' + Object.keys(replaced).join(', ') + '</div>';
+    }
+    if (clist.length > 0) {
+      html += '<div style="font-size:12px;font-weight:600;margin-bottom:8px;color:var(--text2);">约束列表 (' + clist.length + '条)</div>';
+      clist.forEach((c, i) => {
+        const isCritical = c.priority === 'critical';
+        html += '<div style="padding:6px 0;border-bottom:1px solid var(--border);font-size:11px;">' +
+          '<span style="color:' + (isCritical ? 'var(--red)' : 'var(--amber)') + ';font-weight:600;">[' + (isCritical ? 'CRITICAL' : 'SUGGESTION') + ']</span> ' +
+          '<span style="color:var(--text2);">' + escHtml(c.section || '') + '</span>' +
+          '<div style="margin-top:2px;">' + escHtml(c.constraint_text || '') + '</div>' +
+          '</div>';
+      });
+    }
+    panel.innerHTML = html;
+  } catch (e) {
+    panel.innerHTML = '<div style="color:var(--red);">加载约束失败: ' + escHtml(e.message) + '</div>';
+  }
+}
+
+function toggleConstraintPanel() {
+  const panel = document.getElementById('constraint-panel');
+  const btn = document.getElementById('constraint-toggle');
+  const isOpen = panel.style.transform === 'translateX(0px)';
+  panel.style.transform = isOpen ? 'translateX(100%)' : 'translateX(0px)';
+  if (!isOpen) {
+    btn.style.color = 'var(--accent)';
+    btn.style.borderColor = 'var(--accent)';
+  } else {
+    btn.style.color = 'var(--text2)';
+    btn.style.borderColor = 'var(--border)';
+  }
 }
 
 // ── Font Size ──
