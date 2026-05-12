@@ -785,6 +785,22 @@ class APIHandler(BaseHTTPRequestHandler):
                 self._send_error(500, f"Hook detection failed: {e}")
             return
 
+        # GET /api/style-presets - return style preset list
+        m = re.match(r'^/api/style-presets$', path)
+        if m:
+            try:
+                presets_path = os.path.join(
+                    PROJECT_DIR, 'novel_generator', 'style_presets.json'
+                )
+                with open(presets_path, 'r', encoding='utf-8') as f:
+                    presets = json.load(f)
+                self._send_json(presets)
+            except FileNotFoundError:
+                self._send_error(404, 'Style presets not found')
+            except Exception as e:
+                self._send_error(500, str(e))
+            return
+
         # Static files
         self._serve_static(path)
 
@@ -954,6 +970,71 @@ class APIHandler(BaseHTTPRequestHandler):
             self._send_json({"status": "reverted"})
             return
 
+        # POST /api/rewrite - execute text rewrite
+        if path == "/api/rewrite":
+            try:
+                body = self._read_body()
+                chapter_text = body['chapter_text']
+                start_pos = body['start_pos']
+                end_pos = body['end_pos']
+                instruction = body['instruction']
+                style_id = body.get('style_id', '')
+
+                from novel_generator.rewrite_agent import (
+                    extract_context, build_rewrite_prompt, clean_rewrite_output,
+                    REWRITE_SYSTEM_PROMPT
+                )
+
+                before, selected, after = extract_context(chapter_text, start_pos, end_pos)
+
+                style_extra = ''
+                if style_id:
+                    presets_path = os.path.join(
+                        PROJECT_DIR, 'novel_generator', 'style_presets.json'
+                    )
+                    with open(presets_path, 'r', encoding='utf-8') as f:
+                        presets = json.load(f)
+                    for p in presets.get('presets', []):
+                        if p['id'] == style_id:
+                            style_extra = p.get('system_extra', '')
+                            break
+
+                user_prompt = build_rewrite_prompt(before, selected, after, instruction, style_extra)
+
+                # Load LLM config
+                config_path = os.path.join(PROJECT_DIR, 'config.json')
+                with open(config_path, 'r', encoding='utf-8') as f:
+                    config = json.load(f)
+                llm_name = config.get('choose_configs', {}).get('final_chapter_llm', '')
+                if not llm_name:
+                    llm_name = list(config.get('llm_configs', {}).keys())[0]
+                llm_cfg = config['llm_configs'][llm_name]
+
+                from llm_adapters import create_llm_adapter
+                llm = create_llm_adapter(
+                    interface_format=llm_cfg.get('interface_format', 'OpenAI'),
+                    base_url=llm_cfg.get('base_url', ''),
+                    model_name=llm_cfg.get('model_name', ''),
+                    api_key=llm_cfg.get('api_key', ''),
+                    temperature=llm_cfg.get('temperature', 0.7),
+                    max_tokens=llm_cfg.get('max_tokens', 4096),
+                    timeout=llm_cfg.get('timeout', 600),
+                )
+
+                from novel_generator.common import invoke_with_cleaning
+                raw_result = invoke_with_cleaning(llm, user_prompt, system_prompt=REWRITE_SYSTEM_PROMPT)
+                rewritten = clean_rewrite_output(raw_result)
+
+                self._send_json({
+                    'original': selected,
+                    'rewritten': rewritten,
+                    'before_context': before,
+                    'after_context': after
+                })
+            except Exception as e:
+                self._send_error(500, str(e))
+            return
+
         self._send_error(404, "Not found")
 
     def do_PUT(self):
@@ -982,6 +1063,31 @@ class APIHandler(BaseHTTPRequestHandler):
             edits[outline_id][section_key] = new_content
             _save_edits(edits)
             self._send_json({"status": "saved"})
+            return
+
+        # PUT /api/novels/{name}/chapters/{n} - update chapter content
+        m = re.match(r'^/api/novels/([^/]+)/chapters/(\d+)$', path)
+        if m:
+            try:
+                novel_name = m.group(1)
+                chapter_num = int(m.group(2))
+                body = self._read_body()
+                new_content = body['content']
+
+                chapter_file = os.path.join(
+                    NOVEL_OUTPUT_DIR, novel_name, 'chapters', f'chapter_{chapter_num}.txt'
+                )
+
+                if not os.path.exists(chapter_file):
+                    self._send_error(404, f'Chapter {chapter_num} not found')
+                    return
+
+                with open(chapter_file, 'w', encoding='utf-8') as f:
+                    f.write(new_content)
+
+                self._send_json({'status': 'ok', 'chapter': chapter_num})
+            except Exception as e:
+                self._send_error(500, str(e))
             return
 
         self._send_error(404, "Not found")
