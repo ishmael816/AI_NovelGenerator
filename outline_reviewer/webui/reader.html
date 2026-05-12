@@ -193,6 +193,130 @@ body {
 
 /* Loading */
 #loading { text-align: center; padding: 40px; color: var(--text2); }
+
+/* === 浮动改写工具条 === */
+.rewrite-toolbar {
+    position: absolute;
+    z-index: 10000;
+    background: #2a2a2a;
+    border: 1px solid #555;
+    border-radius: 8px;
+    padding: 8px 10px;
+    display: none;
+    flex-wrap: wrap;
+    gap: 6px;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.5);
+    max-width: 420px;
+}
+.rewrite-toolbar.visible { display: flex; }
+.rewrite-toolbar button {
+    padding: 4px 10px;
+    border: 1px solid #555;
+    border-radius: 4px;
+    background: #333;
+    color: #ddd;
+    cursor: pointer;
+    font-size: 13px;
+    white-space: nowrap;
+}
+.rewrite-toolbar button:hover { background: #444; border-color: #888; }
+.rewrite-toolbar button.primary { background: #4a90d9; border-color: #4a90d9; color: #fff; }
+.rewrite-toolbar button.primary:hover { background: #5aa0e9; }
+.rewrite-toolbar input[type="text"] {
+    flex: 1;
+    min-width: 120px;
+    padding: 4px 8px;
+    border: 1px solid #555;
+    border-radius: 4px;
+    background: #1a1a1a;
+    color: #ddd;
+    font-size: 13px;
+}
+.rewrite-toolbar select {
+    padding: 4px 8px;
+    border: 1px solid #555;
+    border-radius: 4px;
+    background: #333;
+    color: #ddd;
+    font-size: 13px;
+}
+
+/* === Diff 弹窗 === */
+.diff-overlay {
+    display: none;
+    position: fixed;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background: rgba(0,0,0,0.7);
+    z-index: 20000;
+    justify-content: center;
+    align-items: center;
+}
+.diff-overlay.visible { display: flex; }
+.diff-modal {
+    background: #1e1e1e;
+    border: 1px solid #555;
+    border-radius: 12px;
+    width: 90vw;
+    max-width: 1000px;
+    max-height: 85vh;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+.diff-header {
+    padding: 12px 16px;
+    border-bottom: 1px solid #444;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+.diff-header h3 { margin: 0; color: #ddd; font-size: 16px; }
+.diff-header button {
+    padding: 6px 16px;
+    border: 1px solid #555;
+    border-radius: 4px;
+    background: #333;
+    color: #ddd;
+    cursor: pointer;
+    font-size: 14px;
+}
+.diff-header button.apply-btn { background: #4caf50; border-color: #4caf50; color: #fff; }
+.diff-header button.apply-btn:hover { background: #5cbf60; }
+.diff-body {
+    display: flex;
+    flex: 1;
+    overflow: hidden;
+}
+.diff-pane {
+    flex: 1;
+    padding: 16px;
+    overflow-y: auto;
+    font-size: 15px;
+    line-height: 1.8;
+    white-space: pre-wrap;
+}
+.diff-pane.left { border-right: 1px solid #444; background: #1a1a1a; color: #bbb; }
+.diff-pane.right { background: #1a1a1a; color: #ddd; }
+.diff-pane h4 { margin: 0 0 8px 0; color: #888; font-size: 13px; text-transform: uppercase; }
+.diff-ins { background: rgba(76,175,80,0.25); border-radius: 2px; }
+.diff-del { background: rgba(244,67,54,0.25); text-decoration: line-through; border-radius: 2px; }
+.diff-eq { color: #999; }
+
+/* Loading spinner for rewrite */
+.rewrite-loading {
+    display: none;
+    position: fixed;
+    z-index: 15000;
+    background: #2a2a2a;
+    border: 1px solid #555;
+    border-radius: 8px;
+    padding: 8px 16px;
+    color: #ddd;
+    font-size: 13px;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+}
 </style>
 </head>
 <body>
@@ -278,6 +402,12 @@ const API = {
   async get(url) { const r = await fetch(url); if (!r.ok) throw new Error(r.statusText); return r.json(); },
 };
 
+// ── Rewrite State ──
+let rewriteSelection = null;     // {text, startPos, endPos}
+let rewriteResult = null;        // {original, rewritten}
+let currentNovelName = '';
+let currentChapterNum = 0;
+
 // ── Init ──
 async function init() {
   // Restore reading position
@@ -298,6 +428,7 @@ async function init() {
     document.getElementById('novel-list').innerHTML =
       '<div style="padding:20px;color:var(--red);font-size:13px;">加载失败: ' + e.message + '</div>';
   }
+  loadStylePresets();
 }
 
 // ── Position persistence ──
@@ -397,6 +528,8 @@ function renderChapterList(name) {
 async function loadChapter(n) {
   if (!state.currentNovel) return;
   state.currentChapter = n;
+  currentNovelName = state.currentNovel;
+  currentChapterNum = n;
 
   // Update chapter list highlighting
   renderChapterList(state.currentNovel);
@@ -655,6 +788,226 @@ document.addEventListener('keydown', function(e) {
   }
 });
 
+// ── Rewrite Functions ──
+
+// Load style presets from API
+async function loadStylePresets() {
+    try {
+        const res = await fetch('/api/style-presets');
+        const data = await res.json();
+        const sel = document.getElementById('rewriteStyleSelect');
+        data.presets.forEach(p => {
+            const opt = document.createElement('option');
+            opt.value = p.id;
+            opt.textContent = p.name;
+            sel.appendChild(opt);
+        });
+    } catch (e) {
+        console.error('Failed to load style presets:', e);
+    }
+}
+
+// Listen for text selection
+document.addEventListener('mouseup', function(e) {
+    // Small delay to let the selection settle
+    setTimeout(() => {
+        const selection = window.getSelection();
+        const text = selection.toString().trim();
+
+        if (text.length < 5 || text.length > 2000) {
+            document.getElementById('rewriteToolbar').classList.remove('visible');
+            return;
+        }
+
+        // Ensure selection is within chapter content
+        const contentArea = document.getElementById('chapter-content');
+        if (!contentArea) return;
+        if (!contentArea.contains(selection.anchorNode)) return;
+
+        // Calculate offset in full text
+        const fullText = contentArea.textContent;
+        const anchorOffset = getTextOffset(contentArea, selection.anchorNode, selection.anchorOffset);
+        const focusOffset = getTextOffset(contentArea, selection.focusNode, selection.focusOffset);
+        const startPos = Math.min(anchorOffset, focusOffset);
+        const endPos = Math.max(anchorOffset, focusOffset);
+
+        rewriteSelection = {
+            text: text,
+            startPos: startPos,
+            endPos: endPos
+        };
+
+        // Position the toolbar
+        const range = selection.getRangeAt(0);
+        const rect = range.getBoundingClientRect();
+        const toolbar = document.getElementById('rewriteToolbar');
+        toolbar.style.left = Math.min(rect.left, window.innerWidth - 430) + 'px';
+        toolbar.style.top = (rect.bottom + window.scrollY + 8) + 'px';
+        toolbar.classList.add('visible');
+
+        // Clear custom input
+        document.getElementById('rewriteCustomInput').value = '';
+    }, 10);
+});
+
+// Get text offset of a node within a root element
+function getTextOffset(root, node, offset) {
+    let total = 0;
+    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+    while (walker.nextNode()) {
+        if (walker.currentNode === node) {
+            return total + offset;
+        }
+        total += walker.currentNode.textContent.length;
+    }
+    return total;
+}
+
+// Hide toolbar when clicking elsewhere
+document.addEventListener('mousedown', function(e) {
+    const toolbar = document.getElementById('rewriteToolbar');
+    if (toolbar && !toolbar.contains(e.target)) {
+        toolbar.classList.remove('visible');
+    }
+});
+
+// Rewrite with a style preset
+function rewriteWithStyle(styleId) {
+    document.getElementById('rewriteStyleSelect').value = styleId;
+    document.getElementById('rewriteToolbar').classList.remove('visible');
+    executeRewrite(styleId, '');
+}
+
+// Rewrite with custom instruction
+function rewriteCustom() {
+    const input = document.getElementById('rewriteCustomInput');
+    const instruction = input.value.trim();
+    if (!instruction) return;
+    const styleId = document.getElementById('rewriteStyleSelect').value;
+    document.getElementById('rewriteToolbar').classList.remove('visible');
+    executeRewrite(styleId, instruction);
+}
+
+async function executeRewrite(styleId, instruction) {
+    if (!rewriteSelection) return;
+
+    const contentArea = document.getElementById('chapter-content');
+    const fullText = contentArea.textContent;
+
+    // If no custom instruction, use style name as default
+    if (!instruction) {
+        const sel = document.getElementById('rewriteStyleSelect');
+        const opt = sel.selectedOptions[0];
+        instruction = opt ? opt.textContent : '请改写这段文字';
+    }
+
+    // Show loading
+    document.getElementById('rewriteLoading').style.display = 'block';
+
+    try {
+        const res = await fetch('/api/rewrite', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                chapter_text: fullText,
+                start_pos: rewriteSelection.startPos,
+                end_pos: rewriteSelection.endPos,
+                instruction: instruction,
+                style_id: styleId
+            })
+        });
+        const data = await res.json();
+        rewriteResult = data;
+
+        // Render diff modal
+        renderDiff(data.original, data.rewritten);
+        document.getElementById('diffOverlay').classList.add('visible');
+    } catch (e) {
+        alert('改写失败: ' + e.message);
+    } finally {
+        document.getElementById('rewriteLoading').style.display = 'none';
+    }
+}
+
+// Character-level diff using common prefix/suffix
+function computeDiff(original, rewritten) {
+    const origChars = [...original];
+    const newChars = [...rewritten];
+
+    // Find common prefix
+    let prefixLen = 0;
+    while (prefixLen < origChars.length && prefixLen < newChars.length
+           && origChars[prefixLen] === newChars[prefixLen]) {
+        prefixLen++;
+    }
+
+    // Find common suffix
+    let suffixLen = 0;
+    while (suffixLen < origChars.length - prefixLen
+           && suffixLen < newChars.length - prefixLen
+           && origChars[origChars.length - 1 - suffixLen] === newChars[newChars.length - 1 - suffixLen]) {
+        suffixLen++;
+    }
+
+    return {
+        prefix: original.substring(0, prefixLen),
+        deleted: original.substring(prefixLen, original.length - suffixLen),
+        inserted: rewritten.substring(prefixLen, rewritten.length - suffixLen),
+        suffix: original.substring(original.length - suffixLen)
+    };
+}
+
+function renderDiff(original, rewritten) {
+    const diff = computeDiff(original, rewritten);
+
+    // Original side
+    let origHTML = '';
+    if (diff.prefix) origHTML += '<span class="diff-eq">' + escHtml(diff.prefix) + '</span>';
+    if (diff.deleted) origHTML += '<span class="diff-del">' + escHtml(diff.deleted) + '</span>';
+    if (diff.suffix) origHTML += '<span class="diff-eq">' + escHtml(diff.suffix) + '</span>';
+    document.getElementById('diffOriginal').innerHTML = origHTML;
+
+    // Rewritten side
+    let newHTML = '';
+    if (diff.prefix) newHTML += '<span class="diff-eq">' + escHtml(diff.prefix) + '</span>';
+    if (diff.inserted) newHTML += '<span class="diff-ins">' + escHtml(diff.inserted) + '</span>';
+    if (diff.suffix) newHTML += '<span class="diff-eq">' + escHtml(diff.suffix) + '</span>';
+    document.getElementById('diffRewritten').innerHTML = newHTML;
+}
+
+function closeDiff() {
+    document.getElementById('diffOverlay').classList.remove('visible');
+}
+
+async function applyRewrite() {
+    if (!rewriteResult) return;
+
+    const contentArea = document.getElementById('chapter-content');
+    const fullText = contentArea.textContent;
+    const newText = fullText.substring(0, rewriteSelection.startPos)
+        + rewriteResult.rewritten
+        + fullText.substring(rewriteSelection.endPos);
+
+    // Save to server
+    try {
+        const res = await fetch('/api/novels/' + encodeURIComponent(currentNovelName) + '/chapters/' + currentChapterNum, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ content: newText })
+        });
+        if (!res.ok) throw new Error('Failed to save');
+    } catch (e) {
+        alert('保存失败: ' + e.message);
+        return;
+    }
+
+    // Update local display
+    contentArea.textContent = newText;
+    closeDiff();
+    rewriteResult = null;
+    rewriteSelection = null;
+}
+
 // ── Helpers ──
 function escHtml(s) {
   if (!s) return '';
@@ -667,5 +1020,44 @@ function escAttr(s) { return String(s).replace(/'/g, "\\'").replace(/"/g, '&quot
 // ── Init ──
 init();
 </script>
+<!-- 浮动改写工具条 -->
+<div id="rewriteToolbar" class="rewrite-toolbar">
+    <button onclick="rewriteWithStyle('remove_cliche')" title="删除陈旧的比喻修辞">去冗余比喻</button>
+    <button onclick="rewriteWithStyle('intensify_dark')" title="增加角色攻击性和压迫感">加重戾气</button>
+    <button onclick="rewriteWithStyle('plain_speech')" title="去掉文艺腔，改为口语化">转大白话</button>
+    <button onclick="rewriteWithStyle('micro_expression')" title="插入微表情和微动作">增加微表情</button>
+    <input type="text" id="rewriteCustomInput" placeholder="自定义指令..." onkeydown="if(event.key==='Enter')rewriteCustom()">
+    <select id="rewriteStyleSelect">
+        <option value="">无风格</option>
+    </select>
+    <button class="primary" onclick="rewriteCustom()">改写</button>
+</div>
+
+<!-- 改写加载提示 -->
+<div id="rewriteLoading" class="rewrite-loading">改写中...</div>
+
+<!-- Diff 对比弹窗 -->
+<div id="diffOverlay" class="diff-overlay">
+    <div class="diff-modal">
+        <div class="diff-header">
+            <h3>改写对比</h3>
+            <div>
+                <button class="apply-btn" onclick="applyRewrite()">应用改写</button>
+                <button onclick="closeDiff()">关闭</button>
+            </div>
+        </div>
+        <div class="diff-body">
+            <div class="diff-pane left">
+                <h4>原文</h4>
+                <div id="diffOriginal"></div>
+            </div>
+            <div class="diff-pane right">
+                <h4>改写</h4>
+                <div id="diffRewritten"></div>
+            </div>
+        </div>
+    </div>
+</div>
+
 </body>
 </html>
