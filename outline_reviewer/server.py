@@ -735,6 +735,56 @@ class APIHandler(BaseHTTPRequestHandler):
             })
             return
 
+        # P0-3: Review constraints for outline
+        m = re.match(r"^/api/outlines/(\d+)/constraints$", path)
+        if m:
+            outline_id = m.group(1)
+            try:
+                from novel_generator.review_constraints import load_review_constraints
+                constraints = load_review_constraints(outline_id, PROJECT_DIR)
+                self._send_json({
+                    "replaced_content": constraints.replaced_content,
+                    "constraints": constraints.constraints,
+                })
+            except Exception as e:
+                self._send_error(500, f"Failed to load constraints: {e}")
+            return
+
+        # P0-3: Novel constraints
+        m = re.match(r"^/api/novels/(.+)/constraints$", path)
+        if m:
+            novel_name = m.group(1)
+            if novel_name not in _get_novel_dirs():
+                self._send_error(404, f"Novel '{novel_name}' not found")
+                return
+            constraints_file = os.path.join(NOVEL_OUTPUT_DIR, novel_name, "review_constraints.json")
+            if os.path.exists(constraints_file):
+                with open(constraints_file, "r", encoding="utf-8") as f:
+                    self._send_json(json.load(f))
+            else:
+                self._send_json({"constraints": [], "replaced_content": {}})
+            return
+
+        # P0-2: Hook detection
+        m = re.match(r"^/api/novels/(.+)/chapters/(\d+)/hooks$", path)
+        if m:
+            novel_name = m.group(1)
+            ch_num = int(m.group(2))
+            if novel_name not in _get_novel_dirs():
+                self._send_error(404, f"Novel '{novel_name}' not found")
+                return
+            content = _read_novel_file(novel_name, f"chapters/chapter_{ch_num}.txt")
+            if content is None:
+                self._send_error(404, f"Chapter {ch_num} not found in '{novel_name}'")
+                return
+            try:
+                from novel_generator.hook_engine import detect_hooks
+                report = detect_hooks(content)
+                self._send_json(report)
+            except Exception as e:
+                self._send_error(500, f"Hook detection failed: {e}")
+            return
+
         # Static files
         self._serve_static(path)
 
@@ -804,6 +854,94 @@ class APIHandler(BaseHTTPRequestHandler):
                 self._send_json({"status": "cancelling"})
             else:
                 self._send_error(409, f"Task is not running (status: {task.status})")
+            return
+
+        # P0-1: Title generation
+        if re.match(r"^/api/outlines/(\d+)/generate-titles$", path):
+            m2 = re.match(r"^/api/outlines/(\d+)/generate-titles$", path)
+            outline_id = m2.group(1)
+            detail = _get_outline_detail(outline_id)
+            if detail is None:
+                self._send_error(404, f"Outline {outline_id} not found")
+                return
+            try:
+                from novel_generator.title_generator import generate_titles
+                titles = generate_titles(detail)
+                self._send_json({"titles": titles})
+            except Exception as e:
+                self._send_error(500, f"Title generation failed: {e}")
+            return
+
+        if re.match(r"^/api/outlines/(\d+)/generate-synopsis$", path):
+            m2 = re.match(r"^/api/outlines/(\d+)/generate-synopsis$", path)
+            outline_id = m2.group(1)
+            data = self._read_body()
+            selected_title = data.get("title", "")
+            if not selected_title:
+                self._send_error(400, "title is required")
+                return
+            detail = _get_outline_detail(outline_id)
+            if detail is None:
+                self._send_error(404, f"Outline {outline_id} not found")
+                return
+            try:
+                from novel_generator.title_generator import generate_synopsis
+                synopsis = generate_synopsis(detail, selected_title)
+                self._send_json(synopsis)
+            except Exception as e:
+                self._send_error(500, f"Synopsis generation failed: {e}")
+            return
+
+        # P0-2: Cliffhanger generation
+        m = re.match(r"^/api/novels/(.+)/chapters/(\d+)/cliffhanger$", path)
+        if m:
+            novel_name = m.group(1)
+            ch_num = int(m.group(2))
+            if novel_name not in _get_novel_dirs():
+                self._send_error(404, f"Novel '{novel_name}' not found")
+                return
+            content = _read_novel_file(novel_name, f"chapters/chapter_{ch_num}.txt")
+            if content is None:
+                self._send_error(404, f"Chapter {ch_num} not found")
+                return
+            next_bp = _read_novel_file(novel_name, "Novel_directory.txt") or ""
+            try:
+                from novel_generator.hook_engine import generate_cliffhanger
+                candidates = generate_cliffhanger(content, next_bp)
+                self._send_json({"candidates": candidates})
+            except Exception as e:
+                self._send_error(500, f"Cliffhanger generation failed: {e}")
+            return
+
+        # P0-3: Start novel generation from review queue
+        if path == "/api/queue/start-novel":
+            data = self._read_body()
+            outline_id = data.get("outline_id", "")
+            if not outline_id:
+                self._send_error(400, "outline_id is required")
+                return
+            try:
+                from novel_generator.review_constraints import load_review_constraints
+                constraints = load_review_constraints(outline_id, PROJECT_DIR)
+            except Exception as e:
+                self._send_error(500, f"Failed to load constraints: {e}")
+                return
+            novel_name = data.get("novel_name", f"novel_{outline_id}")
+            novel_dir = os.path.join(NOVEL_OUTPUT_DIR, novel_name)
+            os.makedirs(novel_dir, exist_ok=True)
+            constraints_data = {
+                "replaced_content": constraints.replaced_content,
+                "constraints": constraints.constraints,
+                "outline_id": outline_id,
+            }
+            _save_json(os.path.join(novel_dir, "review_constraints.json"), constraints_data)
+            self._send_json({
+                "status": "constraints_saved",
+                "novel_name": novel_name,
+                "novel_dir": novel_dir,
+                "constraint_count": len(constraints.constraints),
+                "replaced_sections": list(constraints.replaced_content.keys()),
+            })
             return
 
         m = re.match(r"^/api/outlines/(\d+)/revert$", path)
